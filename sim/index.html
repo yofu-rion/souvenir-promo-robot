@@ -1,0 +1,759 @@
+<title>SRR モーションラボ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;600&family=Zen+Kaku+Gothic+New:wght@700&display=swap">
+<style>
+  /* レイアウト: 左に 3D ビューとタイムライン（観察）、右に感情・センサー・軸設定（操作）。狭い画面では縦積み。 */
+  :root {
+    --bg: #edf0f3;
+    --panel: #ffffff;
+    --ink: #18212c;
+    --muted: #5b6672;
+    --line: #d5dbe2;
+    --accent: #2b4fb8;
+    --accent-ink: #ffffff;
+    --yaw: #3a66d6;
+    --lift: #c97d0a;
+    --pitch: #1f8f70;
+    --ok: #157f3c;
+    --warn: #b9410c;
+    --stage: #e2e7ed;
+    --shelf: #cfd6de;
+    --bubble: #ffffff;
+    --font-display: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", sans-serif;
+    --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif;
+    --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f141a; --panel: #171e26; --ink: #e6ebf1; --muted: #93a0ae; --line: #2a3540;
+      --accent: #8aa4f2; --accent-ink: #0f141a; --yaw: #82a2f4; --lift: #f0aa3c; --pitch: #4cc3a0;
+      --ok: #4ade80; --warn: #f39a5e; --stage: #131a21; --shelf: #26313c; --bubble: #222c37;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f141a; --panel: #171e26; --ink: #e6ebf1; --muted: #93a0ae; --line: #2a3540;
+    --accent: #8aa4f2; --accent-ink: #0f141a; --yaw: #82a2f4; --lift: #f0aa3c; --pitch: #4cc3a0;
+    --ok: #4ade80; --warn: #f39a5e; --stage: #131a21; --shelf: #26313c; --bubble: #222c37;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.6 var(--font-body);
+    padding: 20px 16px 32px;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 16px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+  h1 { font: 700 1.6rem/1.2 var(--font-display); margin: 0; letter-spacing: 0.02em; text-wrap: balance; }
+  header p { margin: 0; color: var(--muted); }
+  h2 {
+    font: 600 0.75rem/1.2 var(--font-body); margin: 0; color: var(--muted);
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 920px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .col { display: grid; gap: 16px; min-width: 0; }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 12px; min-width: 0; }
+  .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .hint { color: var(--muted); font-size: 0.8rem; margin: 0; }
+
+  /* 3D ビュー */
+  .viewport { position: relative; border-radius: var(--radius); overflow: hidden; background: var(--stage); border: 1px solid var(--line); }
+  #view { display: block; width: 100%; aspect-ratio: 4 / 3; max-width: 100%; touch-action: none; cursor: grab; }
+  #view:active { cursor: grabbing; }
+  .bubble {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    max-width: min(80%, 26rem); background: var(--bubble); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 16px; padding: 8px 14px;
+    font-weight: 500; text-align: center; box-shadow: 0 6px 18px rgb(0 0 0 / 0.08);
+  }
+  .bubble::after {
+    content: ""; position: absolute; bottom: -7px; left: 50%; width: 12px; height: 12px;
+    background: var(--bubble); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    transform: translateX(-50%) rotate(45deg);
+  }
+  .hud {
+    position: absolute; left: 12px; bottom: 12px; display: grid; gap: 6px;
+    background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; min-width: 12rem;
+  }
+  .hud-row { display: grid; grid-template-columns: 2.6rem 4.6rem 1fr; align-items: center; gap: 8px; font-size: 0.8rem; }
+  .hud-row.off { opacity: 0.45; }
+  .hud-val { font-family: var(--font-data); font-variant-numeric: tabular-nums; text-align: right; }
+  .hud-bar { position: relative; height: 4px; background: var(--line); border-radius: 2px; min-width: 3rem; }
+  .hud-bar i { position: absolute; top: -3px; width: 4px; height: 10px; border-radius: 2px; transform: translateX(-50%); background: var(--c); }
+  .view-hint { position: absolute; right: 12px; bottom: 12px; font-size: 0.75rem; color: var(--muted); }
+  @media (max-width: 560px) { .view-hint, .hud { display: none; } }
+
+  /* 操作系 */
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .field { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
+  .field output { font-family: var(--font-data); font-variant-numeric: tabular-nums; min-width: 3.2em; }
+  input[type="range"] { accent-color: var(--accent); width: 7.5rem; }
+  input[type="checkbox"] { accent-color: var(--accent); }
+  button {
+    font: 500 0.9rem/1.2 var(--font-body); color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); min-width: 6.5rem; }
+
+  /* タイムライン */
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8rem; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .solid, .legend .dash { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--ink); }
+  .legend .dash { border-top-style: dashed; opacity: 0.6; }
+  #timeline { display: block; width: 100%; height: 280px; }
+
+  .report { display: grid; gap: 6px; font-size: 0.85rem; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; border: 1px solid currentColor; }
+  .pill.ok { color: var(--ok); }
+  .pill.warn { color: var(--warn); }
+  .report ul { margin: 0; padding-left: 1.2em; color: var(--warn); }
+
+  /* プリセット */
+  .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); gap: 8px; }
+  .presets button { display: grid; gap: 2px; text-align: left; padding: 8px 10px; }
+  .presets button small { font-family: var(--font-data); font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .presets button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+  #vapad { display: block; width: 100%; aspect-ratio: 1; max-width: 100%; cursor: crosshair; border-radius: 8px; touch-action: none; }
+
+  .events { display: grid; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); gap: 8px; }
+  .events button { display: grid; gap: 2px; text-align: left; }
+  .events button small { color: var(--muted); font-size: 0.72rem; }
+
+  .axes-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .table-scroll { overflow-x: auto; }
+  .axes-table th { text-align: left; font-weight: 500; color: var(--muted); padding: 4px 6px; white-space: nowrap; }
+  .axes-table td { padding: 4px 6px; border-top: 1px solid var(--line); white-space: nowrap; }
+  .axes-table input[type="number"] {
+    width: 4.6rem; font: 0.82rem var(--font-data); color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px;
+  }
+  .axis-name { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+  .tag { font-size: 0.68rem; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+
+  textarea {
+    width: 100%; min-height: 15rem; resize: vertical; font: 0.78rem/1.5 var(--font-data); color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .msg { font-size: 0.82rem; margin: 0; min-height: 1.3em; }
+  .msg.err { color: var(--warn); }
+  .msg.ok { color: var(--ok); }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>SRR モーションラボ</h1>
+    <p>自己推薦ロボットの回転・昇降・傾きで感情を表現し、実機で動かせるかを確かめる</p>
+  </header>
+
+  <div class="layout">
+    <div class="col">
+      <section class="panel" aria-label="3D ビュー">
+        <div class="viewport">
+          <canvas id="view"></canvas>
+          <div class="bubble" id="bubble">シミュレータを読み込んでいます。表示が変わらない場合は <code>npm run sim</code> で起動したローカルサーバーから開いてください。</div>
+          <div class="hud" id="hud"></div>
+          <div class="view-hint">ドラッグで視点を回す・ホイールで拡大</div>
+        </div>
+        <div class="controls">
+          <button class="primary" id="playBtn" type="button">一時停止</button>
+          <label class="field" for="intensity">強さ <input id="intensity" type="range" min="0.2" max="1.5" step="0.05" value="1"> <output id="intensityOut">1.00</output></label>
+          <label class="field" for="tempo">テンポ <input id="tempo" type="range" min="0.5" max="1.5" step="0.05" value="1"> <output id="tempoOut">1.00×</output></label>
+          <label class="field" for="speak"><input id="speak" type="checkbox"> セリフを読み上げる</label>
+          <label class="field" for="autoIdle"><input id="autoIdle" type="checkbox" checked> 終わったら待機に戻る</label>
+        </div>
+      </section>
+
+      <section class="panel" aria-label="タイムライン">
+        <div class="panel-head">
+          <h2 id="timelineTitle">タイムライン</h2>
+          <div class="legend"><span><i class="dash"></i>指令値</span><span><i class="solid"></i>実機の応答（速度・加速度上限つき）</span></div>
+        </div>
+        <canvas id="timeline"></canvas>
+        <div class="report" id="report"></div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="panel" aria-label="感情プリセット">
+        <div class="panel-head"><h2>感情プリセット</h2><span class="hint">V＝快不快 / A＝覚醒度</span></div>
+        <div class="presets" id="presets"></div>
+      </section>
+
+      <section class="panel" aria-label="感情マップ">
+        <div class="panel-head"><h2>感情マップから生成</h2><span class="hint">クリックした点の感情で動きを自動生成</span></div>
+        <canvas id="vapad"></canvas>
+      </section>
+
+      <section class="panel" aria-label="センサーイベント">
+        <div class="panel-head"><h2>センサーイベント</h2><span class="hint">カメラ・重量センサーの検知を模擬</span></div>
+        <div class="events" id="events"></div>
+      </section>
+
+      <section class="panel" aria-label="軸の設定">
+        <div class="panel-head"><h2>軸の設定</h2><span class="hint">実機の機構に合わせて変更</span></div>
+        <div class="table-scroll">
+          <table class="axes-table">
+            <thead><tr><th>軸</th><th>有効</th><th>最小</th><th>最大</th><th>最大速度 /s</th><th>最大加速度 /s²</th></tr></thead>
+            <tbody id="axesBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" aria-label="モーション JSON">
+        <div class="panel-head"><h2>モーション JSON</h2><span class="hint">編集して「適用」で再生</span></div>
+        <textarea id="motionJson" spellcheck="false" aria-label="モーション JSON"></textarea>
+        <div class="row">
+          <button type="button" id="applyBtn">適用して再生</button>
+          <button type="button" id="copyJsonBtn">JSON をコピー</button>
+          <button type="button" id="copyCsvBtn">実機用 CSV（50Hz）をコピー</button>
+        </div>
+        <p class="msg" id="jsonMsg" role="status"></p>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script type="module">
+import {
+  AXIS_IDS, cloneAxes, simulate, generateFromVA, validateMotion, toCSV,
+} from './motion-core.js';
+
+const THREE = window.THREE;
+const $ = (id) => document.getElementById(id);
+const axes = cloneAxes();
+const EVENT_LABELS = { approach: '接近', stop: '立ち止まり', pickup: '手に取る', putback: '棚に戻す', leave: '立ち去る' };
+
+let presets = { motions: [], events: {} };
+let motion = null;
+let selected = null; // ユーザーが最後に選んだモーション（JSON 欄・書き出しの対象）
+let sim = null;
+let playT = 0;
+let playing = false;
+let vaMarker = null;
+
+// ---------- テーマ ----------
+let tokens = {};
+function readTokens() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ['bg', 'panel', 'ink', 'muted', 'line', 'accent', 'yaw', 'lift', 'pitch', 'stage', 'shelf', 'warn']) {
+    tokens[k] = cs.getPropertyValue(`--${k}`).trim();
+  }
+}
+function onThemeChange() {
+  readTokens();
+  if (scene) {
+    scene.background = new THREE.Color(tokens.stage);
+    floor.material.color.set(tokens.shelf);
+  }
+  renderTimelineStatic();
+  drawVaPad();
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', onThemeChange);
+new MutationObserver(onThemeChange).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+readTokens();
+
+// ---------- 3D シーン（単位: cm） ----------
+const canvas = $('view');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(tokens.stage);
+const camera = new THREE.PerspectiveCamera(32, 4 / 3, 1, 1000);
+const orbit = { theta: 0.55, phi: 1.12, radius: 78, target: new THREE.Vector3(0, 12, 0) };
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 0.75);
+sun.position.set(30, 60, 40);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30 });
+scene.add(sun);
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.MeshStandardMaterial({ color: tokens.shelf, roughness: 1 }));
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+const white = new THREE.MeshStandardMaterial({ color: 0xf4f5f7, roughness: 0.55 });
+const grey = new THREE.MeshStandardMaterial({ color: 0xc9ced6, roughness: 0.4, metalness: 0.2 });
+const dark = new THREE.MeshStandardMaterial({ color: 0x1d232b, roughness: 0.3 });
+const mesh = (geo, mat) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; return m; };
+
+// 本体（JCSS2024 図3 の白い箱型筐体）
+const base = mesh(new THREE.BoxGeometry(16, 9, 14), white);
+base.position.y = 4.5;
+scene.add(base);
+const sensorWindow = mesh(new THREE.BoxGeometry(3, 1.4, 0.2), dark);
+sensorWindow.position.set(4, 5.2, 7.05);
+scene.add(sensorWindow);
+
+// 昇降する柱と、回転するステージ
+const column = mesh(new THREE.CylinderGeometry(4.2, 4.2, 1, 32), grey);
+scene.add(column);
+const stage = new THREE.Group();
+scene.add(stage);
+const disc = mesh(new THREE.CylinderGeometry(6.5, 6.5, 1.2, 48), white);
+disc.position.y = 0.6;
+stage.add(disc);
+
+// 受け台（傾き軸のヒンジは円盤の上面）と商品
+const LEAN = THREE.MathUtils.degToRad(15);
+const holder = new THREE.Group();
+holder.position.y = 1.2;
+stage.add(holder);
+const plate = mesh(new THREE.BoxGeometry(10, 9, 0.6), white);
+plate.position.set(0, 4.5, -0.3);
+const ledge = mesh(new THREE.BoxGeometry(10, 0.6, 3), white);
+ledge.position.set(0, 0.3, 1.5);
+holder.add(plate, ledge);
+
+function productTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 360;
+  const g = c.getContext('2d');
+  g.fillStyle = '#23407e'; g.fillRect(0, 0, 512, 360);
+  g.fillStyle = '#e9b949';
+  g.beginPath(); g.moveTo(0, 360); g.lineTo(170, 210); g.lineTo(260, 280); g.lineTo(380, 170); g.lineTo(512, 300); g.lineTo(512, 360); g.fill();
+  g.fillStyle = '#ffffff';
+  g.textAlign = 'center';
+  g.font = '700 74px "Zen Kaku Gothic New", "Hiragino Sans", sans-serif';
+  g.fillText('ご当地銘菓', 256, 120);
+  g.font = '500 30px "IBM Plex Mono", monospace';
+  g.fillText('SOUVENIR  12個入', 256, 172);
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+}
+const boxSide = new THREE.MeshStandardMaterial({ color: 0x23407e, roughness: 0.5 });
+const productMats = [boxSide, boxSide, boxSide, boxSide, new THREE.MeshStandardMaterial({ map: productTexture(), roughness: 0.5 }), boxSide];
+const product = mesh(new THREE.BoxGeometry(8.6, 6, 2.4), productMats);
+product.position.set(0, 3.6, 1.25);
+holder.add(product);
+if (document.fonts) document.fonts.ready.then(() => { productMats[4].map = productTexture(); productMats[4].needsUpdate = true; });
+
+function applyPose(p) {
+  const liftCm = p.lift / 10;
+  column.scale.y = Math.max(0.01, liftCm + 0.2);
+  column.position.y = 9 + (liftCm + 0.2) / 2 - 0.2;
+  stage.position.y = 9 + liftCm;
+  stage.rotation.y = THREE.MathUtils.degToRad(p.yaw);
+  holder.rotation.x = -(LEAN + THREE.MathUtils.degToRad(p.pitch));
+}
+
+function updateCamera() {
+  const { theta, phi, radius, target } = orbit;
+  camera.position.set(
+    target.x + radius * Math.sin(phi) * Math.sin(theta),
+    target.y + radius * Math.cos(phi),
+    target.z + radius * Math.sin(phi) * Math.cos(theta),
+  );
+  camera.lookAt(target);
+}
+let drag = null;
+canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  orbit.theta -= (e.clientX - drag.x) * 0.008;
+  orbit.phi = Math.min(1.5, Math.max(0.25, orbit.phi - (e.clientY - drag.y) * 0.008));
+  drag = { x: e.clientX, y: e.clientY };
+});
+canvas.addEventListener('pointerup', () => { drag = null; });
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  orbit.radius = Math.min(160, Math.max(35, orbit.radius * (1 + Math.sign(e.deltaY) * 0.08)));
+}, { passive: false });
+
+function resizeView() {
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (!w || !h) return;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resizeView).observe(canvas);
+
+// ---------- HUD ----------
+function buildHud() {
+  $('hud').innerHTML = AXIS_IDS.map((id) => `
+    <div class="hud-row" id="hud-${id}" style="--c: var(--${id})">
+      <span>${axes[id].label}</span><span class="hud-val" id="hudv-${id}"></span><span class="hud-bar"><i id="hudb-${id}"></i></span>
+    </div>`).join('');
+}
+function updateHud(p) {
+  for (const id of AXIS_IDS) {
+    const cfg = axes[id];
+    $(`hud-${id}`).classList.toggle('off', !cfg.enabled);
+    $(`hudv-${id}`).textContent = `${p[id].toFixed(1)} ${cfg.unit}`;
+    $(`hudb-${id}`).style.left = `${((p[id] - cfg.min) / (cfg.max - cfg.min)) * 100}%`;
+  }
+}
+
+// ---------- 再生 ----------
+const simIndex = () => (sim ? Math.min(sim.t.length - 1, Math.max(0, Math.round(playT / sim.dt))) : 0);
+function currentState() {
+  if (!sim) return null;
+  const i = simIndex();
+  const s = {};
+  for (const id of AXIS_IDS) s[id] = { pos: sim.act[id][i], vel: sim.vel[id][i] };
+  return s;
+}
+function currentPose() {
+  const p = {};
+  if (!sim) { for (const id of AXIS_IDS) p[id] = axes[id].neutral; return p; }
+  const i = simIndex();
+  for (const id of AXIS_IDS) p[id] = sim.act[id][i];
+  return p;
+}
+
+// quiet: 待機への自動復帰やループ再開。JSON 欄や吹き出しは変えない。
+function start(m, { speak = true, quiet = false, fromState = true } = {}) {
+  const init = fromState ? currentState() : null;
+  motion = m;
+  sim = simulate(m, axes, { intensity: +$('intensity').value, tempo: +$('tempo').value, init });
+  playT = 0;
+  playing = true;
+  if (!quiet) $('playBtn').textContent = '一時停止';
+  $('timelineTitle').textContent = `タイムライン ・ ${m.name}`;
+  if (!quiet) {
+    selected = m;
+    if (speak) {
+      $('bubble').textContent = m.speech || m.name;
+      $('bubble').hidden = false;
+      say(m);
+    }
+    for (const b of document.querySelectorAll('.presets button')) b.setAttribute('aria-pressed', String(b.dataset.id === m.id));
+    if (m.id !== 'generated') vaMarker = null;
+    $('motionJson').value = stringifyMotion(m);
+  }
+  renderReport();
+  renderTimelineStatic();
+  drawVaPad();
+}
+
+function restart() {
+  if (selected) start(selected, { speak: false });
+}
+
+$('playBtn').addEventListener('click', () => {
+  if (!motion) return;
+  if (motion !== selected || (!playing && playT >= sim.duration)) { start(selected); return; }
+  playing = !playing;
+  $('playBtn').textContent = playing ? '一時停止' : '再生';
+});
+for (const id of ['intensity', 'tempo']) {
+  $(id).addEventListener('input', () => {
+    $('intensityOut').textContent = (+$('intensity').value).toFixed(2);
+    $('tempoOut').textContent = `${(+$('tempo').value).toFixed(2)}×`;
+    restart();
+  });
+}
+
+function say(m) {
+  if (!$('speak').checked || !m.speech || !('speechSynthesis' in window)) return;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(m.speech);
+    u.lang = 'ja-JP';
+    const voice = speechSynthesis.getVoices().find((v) => v.lang.startsWith('ja'));
+    if (voice) u.voice = voice;
+    u.rate = m.voice?.rate ?? 1;
+    u.pitch = m.voice?.pitch ?? 1;
+    speechSynthesis.speak(u);
+  } catch { /* 読み上げに対応しない環境では吹き出しだけ表示する */ }
+}
+
+// ---------- タイムライン ----------
+const tl = $('timeline');
+const tlStatic = document.createElement('canvas');
+const TL = { left: 64, right: 12, top: 8, bottom: 24 };
+function laneRect(i, h) {
+  const laneH = (h - TL.top - TL.bottom) / AXIS_IDS.length;
+  return { y: TL.top + i * laneH, h: laneH };
+}
+function renderTimelineStatic() {
+  const dpr = Math.min(devicePixelRatio, 2);
+  const w = tl.clientWidth;
+  const h = tl.clientHeight;
+  if (!w) return;
+  for (const c of [tl, tlStatic]) { c.width = w * dpr; c.height = h * dpr; }
+  const g = tlStatic.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  g.font = '11px "IBM Plex Mono", monospace';
+  const plotW = w - TL.left - TL.right;
+  const dur = sim ? sim.duration : 3;
+  const x = (t) => TL.left + (t / dur) * plotW;
+
+  g.strokeStyle = tokens.line;
+  g.fillStyle = tokens.muted;
+  g.lineWidth = 1;
+  const step = dur > 6 ? 1 : 0.5;
+  for (let t = 0; t <= dur + 1e-6; t += step) {
+    g.beginPath(); g.moveTo(x(t), TL.top); g.lineTo(x(t), h - TL.bottom); g.stroke();
+    g.textAlign = 'center';
+    g.fillText(`${t.toFixed(1)}s`, x(t), h - 8);
+  }
+
+  AXIS_IDS.forEach((id, i) => {
+    const cfg = axes[id];
+    const lane = laneRect(i, h);
+    const pad = 6;
+    const y = (v) => lane.y + pad + (1 - (v - cfg.min) / (cfg.max - cfg.min)) * (lane.h - pad * 2);
+    g.strokeStyle = tokens.line;
+    g.beginPath(); g.moveTo(TL.left, lane.y + lane.h); g.lineTo(w - TL.right, lane.y + lane.h); g.stroke();
+    g.textAlign = 'left';
+    g.fillStyle = tokens[id];
+    g.font = '600 12px "IBM Plex Sans JP", sans-serif';
+    g.fillText(cfg.label, 8, lane.y + 16);
+    g.fillStyle = tokens.muted;
+    g.font = '10px "IBM Plex Mono", monospace';
+    g.fillText(`${cfg.max}${cfg.unit}`, 8, lane.y + 30);
+    g.fillText(`${cfg.min}${cfg.unit}`, 8, lane.y + lane.h - 4);
+    if (!cfg.enabled || !sim) {
+      g.fillText(cfg.enabled ? '' : '無効（中立で固定）', TL.left + 8, lane.y + lane.h / 2 + 4);
+      return;
+    }
+    const n = sim.t.length;
+    const stride = Math.max(1, Math.floor(n / plotW));
+    const path = (arr) => {
+      g.beginPath();
+      for (let k = 0; k < n; k += stride) {
+        const px = x(sim.t[k]); const py = y(arr[k]);
+        if (k === 0) g.moveTo(px, py); else g.lineTo(px, py);
+      }
+      g.stroke();
+    };
+    g.strokeStyle = tokens[id];
+    g.globalAlpha = 0.55; g.setLineDash([4, 4]); g.lineWidth = 1.5;
+    path(sim.cmd[id]);
+    g.globalAlpha = 1; g.setLineDash([]); g.lineWidth = 2;
+    path(sim.act[id]);
+  });
+}
+function drawTimeline() {
+  const dpr = Math.min(devicePixelRatio, 2);
+  const g = tl.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, tl.width, tl.height);
+  g.drawImage(tlStatic, 0, 0);
+  if (!sim) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = tl.clientWidth;
+  const h = tl.clientHeight;
+  const px = TL.left + (playT / sim.duration) * (w - TL.left - TL.right);
+  g.strokeStyle = tokens.accent;
+  g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(px, TL.top); g.lineTo(px, h - TL.bottom); g.stroke();
+}
+new ResizeObserver(renderTimelineStatic).observe(tl);
+
+function renderReport() {
+  const r = sim.report;
+  const peaks = AXIS_IDS.filter((id) => r.axes[id].enabled)
+    .map((id) => `${axes[id].label} ${Math.round(r.axes[id].peakCmdVel)}/${axes[id].vmax} ${axes[id].unit}/s`).join(' ・ ');
+  $('report').innerHTML = r.ok
+    ? `<div><span class="pill ok">実機の上限内</span> <span class="hint">ピーク指令速度 ${peaks}</span></div>`
+    : `<div><span class="pill warn">実機では再現しきれません</span></div><ul>${r.warnings.map((w) => `<li>${w.message}</li>`).join('')}</ul>`;
+}
+
+// ---------- 感情マップ ----------
+const pad = $('vapad');
+function vaToXY(v, a, s) { return [((v + 1) / 2) * s, ((1 - a) / 2) * s]; }
+function drawVaPad() {
+  const dpr = Math.min(devicePixelRatio, 2);
+  const s = pad.clientWidth;
+  if (!s) return;
+  pad.width = s * dpr; pad.height = s * dpr;
+  const g = pad.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = tokens.bg; g.fillRect(0, 0, s, s);
+  g.strokeStyle = tokens.line; g.lineWidth = 1;
+  g.beginPath(); g.arc(s / 2, s / 2, s / 2 - 8, 0, Math.PI * 2); g.stroke();
+  g.beginPath(); g.moveTo(s / 2, 8); g.lineTo(s / 2, s - 8); g.moveTo(8, s / 2); g.lineTo(s - 8, s / 2); g.stroke();
+
+  g.fillStyle = tokens.muted;
+  g.font = '11px "IBM Plex Sans JP", sans-serif';
+  g.textAlign = 'left'; g.fillText('覚醒 ↑', s / 2 + 6, 18);
+  g.fillText('沈静', s / 2 + 6, s - 10);
+  g.textAlign = 'right'; g.fillText('快 →', s - 10, s / 2 - 6);
+  g.textAlign = 'left'; g.fillText('不快', 10, s / 2 - 6);
+  g.globalAlpha = 0.7;
+  g.textAlign = 'right'; g.fillText('喜び・興奮', s - 12, 34); g.fillText('安らぎ・満足', s - 12, s - 26);
+  g.textAlign = 'left'; g.fillText('怒り・不安', 12, 34); g.fillText('悲しみ・退屈', 12, s - 26);
+  g.globalAlpha = 1;
+
+  g.font = '600 11px "IBM Plex Sans JP", sans-serif';
+  for (const m of presets.motions) {
+    const [x, y] = vaToXY(m.valence, m.arousal, s);
+    const active = motion && motion.id === m.id;
+    g.fillStyle = active ? tokens.accent : tokens.ink;
+    g.beginPath(); g.arc(x, y, active ? 5 : 3.5, 0, Math.PI * 2); g.fill();
+    g.textAlign = x > s * 0.75 ? 'right' : 'left';
+    g.fillText(m.name, x + (x > s * 0.75 ? -8 : 8), y + 4);
+  }
+  if (vaMarker) {
+    const [x, y] = vaToXY(vaMarker.v, vaMarker.a, s);
+    g.strokeStyle = tokens.accent; g.lineWidth = 2;
+    g.beginPath(); g.arc(x, y, 8, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.moveTo(x - 12, y); g.lineTo(x + 12, y); g.moveTo(x, y - 12); g.lineTo(x, y + 12); g.stroke();
+  }
+}
+pad.addEventListener('pointerdown', (e) => {
+  const r = pad.getBoundingClientRect();
+  const v = Math.max(-1, Math.min(1, ((e.clientX - r.left) / r.width) * 2 - 1));
+  const a = Math.max(-1, Math.min(1, 1 - ((e.clientY - r.top) / r.height) * 2));
+  vaMarker = { v, a };
+  start(generateFromVA(v, a, axes));
+});
+new ResizeObserver(drawVaPad).observe(pad);
+
+// ---------- 軸の設定 ----------
+function buildAxesTable() {
+  const num = (id, f) => `<input type="number" id="ax-${id}-${f}" data-axis="${id}" data-field="${f}" value="${axes[id][f]}" step="any" aria-label="${axes[id].label} ${f}">`;
+  $('axesBody').innerHTML = AXIS_IDS.map((id) => `
+    <tr>
+      <td><span class="axis-name" style="--c: var(--${id})"><i class="swatch"></i>${axes[id].label}</span> ${id === 'pitch' ? '<span class="tag">拡張</span>' : ''}</td>
+      <td><input type="checkbox" id="ax-${id}-enabled" data-axis="${id}" data-field="enabled" ${axes[id].enabled ? 'checked' : ''} aria-label="${axes[id].label}を有効にする"></td>
+      <td>${num(id, 'min')}</td><td>${num(id, 'max')}</td><td>${num(id, 'vmax')}</td><td>${num(id, 'amax')}</td>
+    </tr>`).join('');
+}
+$('axesBody').addEventListener('change', (e) => {
+  const el = e.target;
+  const { axis, field } = el.dataset;
+  if (!axis) return;
+  if (field === 'enabled') {
+    axes[axis].enabled = el.checked;
+  } else {
+    const v = Number(el.value);
+    const cfg = axes[axis];
+    const okRange = field === 'min' ? v < cfg.max && v <= cfg.neutral : field === 'max' ? v > cfg.min && v >= cfg.neutral : v > 0;
+    if (!Number.isFinite(v) || !okRange) { el.value = cfg[field]; return; }
+    cfg[field] = v;
+  }
+  restart();
+});
+
+// ---------- JSON 入出力 ----------
+function stringifyMotion(m) {
+  return JSON.stringify(m, null, 2)
+    .replace(/\[\s+(-?[\d.e-]+),\s+(-?[\d.e-]+)(?:,\s+("\w+"))?\s+\]/g, (_, a, b, c) => `[${a}, ${b}${c ? `, ${c}` : ''}]`)
+    .replace(/\[\s+(\[[^\n]*\](?:,\s+\[[^\n]*\])*)\s+\]/g, (_, inner) => `[${inner.replace(/\s+/g, ' ')}]`);
+}
+function showMsg(text, kind = '') {
+  $('jsonMsg').textContent = text;
+  $('jsonMsg').className = `msg ${kind}`;
+}
+$('applyBtn').addEventListener('click', () => {
+  let m;
+  try { m = JSON.parse($('motionJson').value); } catch (err) { showMsg(`JSON として読めません: ${err.message}`, 'err'); return; }
+  const errors = validateMotion(m);
+  if (errors.length) { showMsg(errors.join(' / '), 'err'); return; }
+  m.id = m.id || 'custom';
+  start(m);
+  showMsg('適用しました', 'ok');
+});
+async function copyText(text, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showMsg(`${label}をコピーしました`, 'ok');
+  } catch {
+    $('motionJson').value = text;
+    $('motionJson').select();
+    showMsg(`自動でコピーできませんでした。欄に${label}を表示したので、選択された状態のままコピーしてください`, 'err');
+  }
+}
+$('copyJsonBtn').addEventListener('click', () => selected && copyText(stringifyMotion(selected), 'JSON '));
+$('copyCsvBtn').addEventListener('click', () => {
+  if (!selected) return;
+  const fresh = simulate(selected, axes, { intensity: +$('intensity').value, tempo: +$('tempo').value });
+  copyText(toCSV(fresh, axes, 50), 'CSV ');
+});
+
+// ---------- 起動 ----------
+function buildPresetButtons() {
+  $('presets').innerHTML = presets.motions.map((m) => `
+    <button type="button" data-id="${m.id}" aria-pressed="false">${m.name}
+      <small>V${m.valence >= 0 ? '+' : ''}${m.valence.toFixed(1)} A${m.arousal >= 0 ? '+' : ''}${m.arousal.toFixed(1)}</small>
+    </button>`).join('');
+  $('presets').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) start(presets.motions.find((m) => m.id === b.dataset.id));
+  });
+  $('events').innerHTML = Object.entries(EVENT_LABELS).map(([ev, label]) => {
+    const target = presets.motions.find((m) => m.id === presets.events[ev]);
+    return `<button type="button" data-event="${ev}">${label}<small>→ ${target ? target.name : '未設定'}</small></button>`;
+  }).join('');
+  $('events').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    const target = b && presets.motions.find((m) => m.id === presets.events[b.dataset.event]);
+    if (target) start(target);
+  });
+}
+
+let last = performance.now();
+function frame(ts) {
+  const dt = Math.min(0.05, (ts - last) / 1000);
+  last = ts;
+  if (playing && sim) {
+    playT += dt;
+    if (playT >= sim.duration) {
+      if (motion.loop) {
+        start(motion, { quiet: true });
+      } else {
+        playT = sim.duration;
+        playing = false;
+        $('playBtn').textContent = '再生';
+        const idle = presets.motions.find((m) => m.id === 'idle');
+        if ($('autoIdle').checked && idle && motion.id !== 'idle') {
+          start(idle, { quiet: true });
+          $('bubble').hidden = true;
+          $('playBtn').textContent = 'もう一度';
+        }
+      }
+    }
+  }
+  const pose = currentPose();
+  applyPose(pose);
+  updateHud(pose);
+  updateCamera();
+  renderer.render(scene, camera);
+  drawTimeline();
+  requestAnimationFrame(frame);
+}
+
+buildHud();
+buildAxesTable();
+resizeView();
+try {
+  const res = await fetch('presets.json');
+  presets = await res.json();
+  $('bubble').hidden = true;
+} catch {
+  $('bubble').textContent = 'presets.json を読み込めませんでした。npm run sim で起動したローカルサーバーから開いてください。感情マップからの生成は使えます。';
+}
+buildPresetButtons();
+const first = presets.motions.find((m) => m.id === 'beckon') || generateFromVA(0.5, 0.5, axes);
+start(first, { speak: false });
+requestAnimationFrame(frame);
+</script>

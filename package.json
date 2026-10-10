@@ -1,0 +1,9 @@
+{
+  "name": "souvenir-promo-robot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"sim/test/*.test.mjs\"",
+    "sim": "python3 -m http.server 8000 --directory sim"
+  }
+}
