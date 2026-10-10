@@ -147,6 +147,20 @@
   .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
   .tag { font-size: 0.68rem; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
 
+  .script-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  @media (max-width: 720px) { .script-grid { grid-template-columns: minmax(0, 1fr); } }
+  #scriptText { min-height: 16rem; font: 0.85rem/1.7 var(--font-body); }
+  .segments { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 20rem; overflow-y: auto; align-content: start; }
+  .segments button {
+    width: 100%; display: grid; grid-template-columns: 3.4rem 4.6rem minmax(0, 1fr); gap: 8px; align-items: baseline;
+    text-align: left; padding: 6px 8px; font-size: 0.8rem; font-weight: 400; border-color: transparent; background: transparent;
+  }
+  .segments button:hover { border-color: var(--line); }
+  .segments li.now button { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .seg-time { font-family: var(--font-data); font-variant-numeric: tabular-nums; color: var(--muted); }
+  .seg-emo { font-size: 0.72rem; font-weight: 600; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seg-emo.err { color: var(--warn); }
+  .seg-text { min-width: 0; overflow-wrap: anywhere; }
   textarea {
     width: 100%; min-height: 15rem; resize: vertical; font: 0.78rem/1.5 var(--font-data); color: var(--ink);
     background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px;
@@ -188,6 +202,22 @@
         </div>
         <canvas id="timeline"></canvas>
         <div class="report" id="report"></div>
+      </section>
+
+      <section class="panel" aria-label="説明文モーション">
+        <div class="panel-head">
+          <h2>説明文から長尺モーション</h2>
+          <span class="hint">1 行 1 文。文頭に [喜び] や [V0.5 A-0.2] を付けると感情を指定できる</span>
+        </div>
+        <div class="script-grid">
+          <textarea id="scriptText" spellcheck="false" aria-label="おみやげの説明文"></textarea>
+          <ol class="segments" id="segments" aria-label="文ごとの感情と開始時刻"></ol>
+        </div>
+        <div class="controls">
+          <button class="primary" type="button" id="scriptBtn">モーションを作って再生</button>
+          <label class="field" for="cps">話す速さ <input id="cps" type="range" min="4" max="8" step="0.25" value="5.5"> <output id="cpsOut">5.5 字/秒</output></label>
+          <span class="hint" id="scriptInfo"></span>
+        </div>
       </section>
     </div>
 
@@ -235,6 +265,7 @@
 <script type="module">
 import {
   AXIS_IDS, cloneAxes, simulate, generateFromVA, validateMotion, toCSV,
+  parseScript, composeScriptMotion,
 } from './motion-core.js';
 
 const THREE = window.THREE;
@@ -249,6 +280,11 @@ let sim = null;
 let playT = 0;
 let playing = false;
 let vaMarker = null;
+// 説明文モーションの読み上げ同期
+let simTempo = 1;
+let cueIdx = 0;
+let speaking = false;
+let holdSince = null;
 
 // ---------- テーマ ----------
 let tokens = {};
@@ -430,17 +466,24 @@ function currentPose() {
 function start(m, { speak = true, quiet = false, fromState = true } = {}) {
   const init = fromState ? currentState() : null;
   motion = m;
-  sim = simulate(m, axes, { intensity: +$('intensity').value, tempo: +$('tempo').value, init });
+  simTempo = +$('tempo').value;
+  sim = simulate(m, axes, { intensity: +$('intensity').value, tempo: simTempo, init });
   playT = 0;
+  cueIdx = 0;
+  holdSince = null;
+  if (!m.cues) renderSegments(null);
   playing = true;
   if (!quiet) $('playBtn').textContent = '一時停止';
   $('timelineTitle').textContent = `タイムライン ・ ${m.name}`;
   if (!quiet) {
     selected = m;
-    if (speak) {
+    if (m.cues) {
+      $('bubble').hidden = true;
+      if ('speechSynthesis' in window) speechSynthesis.cancel();
+    } else if (speak) {
       $('bubble').textContent = m.speech || m.name;
       $('bubble').hidden = false;
-      say(m);
+      say(m.speech, m.voice);
     }
     for (const b of document.querySelectorAll('.presets button')) b.setAttribute('aria-pressed', String(b.dataset.id === m.id));
     if (m.id !== 'generated') vaMarker = null;
@@ -469,18 +512,83 @@ for (const id of ['intensity', 'tempo']) {
   });
 }
 
-function say(m) {
-  if (!$('speak').checked || !m.speech || !('speechSynthesis' in window)) return;
+function say(text, voiceOpts) {
+  if (!$('speak').checked || !text || !('speechSynthesis' in window)) return;
   try {
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(m.speech);
+    const u = new SpeechSynthesisUtterance(text);
     u.lang = 'ja-JP';
     const voice = speechSynthesis.getVoices().find((v) => v.lang.startsWith('ja'));
     if (voice) u.voice = voice;
-    u.rate = m.voice?.rate ?? 1;
-    u.pitch = m.voice?.pitch ?? 1;
+    u.rate = voiceOpts?.rate ?? 1;
+    u.pitch = voiceOpts?.pitch ?? 1;
+    u.onstart = () => { speaking = true; };
+    u.onend = u.onerror = () => { speaking = false; };
+    speaking = true;
     speechSynthesis.speak(u);
-  } catch { /* 読み上げに対応しない環境では吹き出しだけ表示する */ }
+  } catch { speaking = false; /* 読み上げに対応しない環境では吹き出しだけ表示する */ }
+}
+
+// ---------- 説明文モーション ----------
+const EMO_NAMES = { beckon: '呼び込み', joy: '喜び', thanks: 'お礼', beg: 'おねだり', surprise: '驚き', shy: '照れ', sad: '悲しみ', sulk: 'すねる', idle: '待機' };
+const fmtSec = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+const emoLabel = (e) => (e.gesture ? EMO_NAMES[e.gesture] || e.gesture : `V${e.v >= 0 ? '+' : ''}${e.v.toFixed(1)} A${e.a >= 0 ? '+' : ''}${e.a.toFixed(1)}`);
+
+function renderSegments(m) {
+  const list = $('segments');
+  if (!m || !m.cues) { for (const li of list.children) li.classList.remove('now'); return; }
+  list.innerHTML = m.cues.map((c, i) => `
+    <li data-i="${i}"><button type="button" data-i="${i}">
+      <span class="seg-time">${fmtSec(c.t)}</span>
+      <span class="seg-emo${c.tagError ? ' err' : ''}" title="${c.source === 'tag' ? 'タグで指定' : c.keyword ? `「${c.keyword}」から推定` : '既定（説明口調）'}">${c.tagError ? 'タグ不明' : emoLabel(c)}</span>
+      <span class="seg-text">${c.text.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))}</span>
+    </button></li>`).join('');
+}
+function markSegment(i) {
+  for (const li of $('segments').children) li.classList.toggle('now', +li.dataset.i === i);
+}
+$('segments').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b || !motion?.cues) return;
+  const i = +b.dataset.i;
+  playT = motion.cues[i].t / simTempo;
+  cueIdx = i;
+  holdSince = null;
+  playing = true;
+  $('playBtn').textContent = '一時停止';
+});
+
+function buildScriptMotion() {
+  const segs = parseScript($('scriptText').value, presets.motions);
+  if (segs.length === 0) { $('scriptInfo').textContent = '説明文を入力してください'; return; }
+  const m = composeScriptMotion(segs, axes, presets.motions, { charsPerSec: +$('cps').value });
+  m.cues.forEach((c, i) => Object.assign(c, { source: segs[i].emotion.source, keyword: segs[i].emotion.keyword, tagError: segs[i].tagError }));
+  renderSegments(m);
+  $('scriptInfo').textContent = `${segs.length} 文 ・ 約 ${Math.round(m.duration)} 秒`;
+  start(m);
+}
+$('scriptBtn').addEventListener('click', buildScriptMotion);
+$('cps').addEventListener('input', () => { $('cpsOut').textContent = `${+$('cps').value} 字/秒`; });
+
+// 文の開始時刻で読み上げを始める。読み上げが動きより長引いたら、次の文の手前で動きを待たせる。
+function advanceCues(dt) {
+  const cues = motion.cues;
+  const next = cues[cueIdx];
+  const waitForSpeech = $('speak').checked && speaking && cueIdx > 0 && next && playT + dt >= next.t / simTempo;
+  if (waitForSpeech) {
+    holdSince ??= performance.now();
+    if (performance.now() - holdSince < 6000) return 0;
+  }
+  holdSince = null;
+  while (cueIdx < cues.length && playT + dt >= cues[cueIdx].t / simTempo) {
+    const c = cues[cueIdx];
+    $('bubble').textContent = c.text;
+    $('bubble').hidden = false;
+    markSegment(cueIdx);
+    say(c.text, c.voice);
+    cueIdx++;
+  }
+  return dt;
 }
 
 // ---------- タイムライン ----------
@@ -508,7 +616,7 @@ function renderTimelineStatic() {
   g.strokeStyle = tokens.line;
   g.fillStyle = tokens.muted;
   g.lineWidth = 1;
-  const step = dur > 6 ? 1 : 0.5;
+  const step = dur > 30 ? 5 : dur > 6 ? 1 : 0.5;
   for (let t = 0; t <= dur + 1e-6; t += step) {
     g.beginPath(); g.moveTo(x(t), TL.top); g.lineTo(x(t), h - TL.bottom); g.stroke();
     g.textAlign = 'center';
@@ -716,7 +824,7 @@ function frame(ts) {
   const dt = Math.min(0.05, (ts - last) / 1000);
   last = ts;
   if (playing && sim) {
-    playT += dt;
+    playT += motion.cues ? advanceCues(dt) : dt;
     if (playT >= sim.duration) {
       if (motion.loop) {
         start(motion, { quiet: true });
@@ -753,6 +861,13 @@ try {
   $('bubble').textContent = 'presets.json を読み込めませんでした。npm run sim で起動したローカルサーバーから開いてください。感情マップからの生成は使えます。';
 }
 buildPresetButtons();
+try {
+  const res = await fetch('scripts/sample-souvenir.txt');
+  if (!res.ok) throw new Error(res.statusText);
+  $('scriptText').value = await res.text();
+} catch {
+  $('scriptText').value = 'こんにちは！ぼくは「やまびこ饅頭」です。\n実は、駅のお土産ランキングで一番人気なんだ！\n旅の思い出に、ぜひぼくを連れて帰ってね。';
+}
 const first = presets.motions.find((m) => m.id === 'beckon') || generateFromVA(0.5, 0.5, axes);
 start(first, { speak: false });
 requestAnimationFrame(frame);

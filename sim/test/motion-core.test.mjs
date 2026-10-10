@@ -83,3 +83,32 @@ test('toCSV は有効な軸だけを指定周波数で出力する', () => {
   assert.equal(lines[2].split(',')[0], '0.020');
   assert.ok(AXIS_IDS.length === 3);
 });
+
+import { parseScript, inferEmotion, composeScriptMotion, estimateSpeechSeconds } from '../motion-core.js';
+
+const sample = fs.readFileSync(new URL('../scripts/sample-souvenir.txt', import.meta.url), 'utf8');
+
+test('parseScript は文ごとに区切り、タグを読む', () => {
+  const segs = parseScript('こんにちは！ぼくは饅頭です。\n[照れ] 見ないで。\n[V-0.5 A0.2] 残り一個。\n[未知] あれ', presets.motions);
+  assert.deepEqual(segs.map((s) => s.text), ['こんにちは！', 'ぼくは饅頭です。', '見ないで。', '残り一個。', 'あれ']);
+  assert.equal(segs[0].emotion.gesture, 'beckon');
+  assert.equal(segs[2].emotion.gesture, 'shy');
+  assert.deepEqual([segs[3].emotion.v, segs[3].emotion.a], [-0.5, 0.2]);
+  assert.equal(segs[4].tagError, true);
+});
+
+test('inferEmotion はキーワードから感情を推定し、該当なしは説明口調にする', () => {
+  assert.equal(inferEmotion('一番人気なんだ！').gesture, 'joy');
+  assert.equal(inferEmotion('職人さんの手作り').gesture, 'thanks');
+  assert.equal(inferEmotion('日持ちは二週間。').gesture, null);
+});
+
+test('サンプルの説明文は約 1 分のモーションになり、実機の上限内に収まる', () => {
+  const axes = allAxes();
+  const m = composeScriptMotion(parseScript(sample, presets.motions), axes, presets.motions);
+  assert.deepEqual(validateMotion(m), []);
+  assert.ok(m.duration > 45 && m.duration < 75, `duration ${m.duration}`);
+  for (let i = 1; i < m.cues.length; i++) assert.ok(m.cues[i].t >= m.cues[i - 1].end, `cue ${i}`);
+  for (const c of m.cues) assert.ok(c.end - c.t >= estimateSpeechSeconds(c.text) - 0.002);
+  assert.deepEqual(simulate(m, axes).report.warnings, []);
+});

@@ -258,3 +258,115 @@ export function toCSV(sim, axes, hz = 50) {
   }
   return lines.join('\n');
 }
+
+// ---------- 説明文からの長尺モーション ----------
+//
+// 説明文を文ごとに区切り、各文の感情を推定（または [喜び] などのタグで指定）して、
+// 「文頭のしぐさ（プリセット）→ 話している間の動き（感情から生成）」を並べる。
+// 各文の開始時刻を cues に持たせ、再生側はこれに合わせて読み上げる。
+
+// 日本語の読み上げ速度の目安（文字/秒）。読み上げエンジンに合わせて調整する。
+export const DEFAULT_CHARS_PER_SEC = 5.5;
+
+export function estimateSpeechSeconds(text, charsPerSec = DEFAULT_CHARS_PER_SEC) {
+  const body = text.replace(/\s+/g, '');
+  const pauses = (body.match(/[、，,]/g) || []).length * 0.15 + (body.match(/[。！？!?…]/g) || []).length * 0.3;
+  return body.length / charsPerSec + pauses;
+}
+
+// キーワードから感情を推定する規則。上から順に最初に当たったものを使う。
+export const EMOTION_RULES = [
+  { gesture: 'thanks', v: 0.6, a: -0.1, words: ['ありがとう', '感謝'] },
+  { gesture: 'beckon', v: 0.5, a: 0.6, words: ['こんにちは', 'いらっしゃい', 'はじめまして', 'ねえねえ', 'こっち'] },
+  { gesture: 'surprise', v: 0.3, a: 0.9, words: ['なんと', '実は', 'びっくり', '驚き', 'まさか'] },
+  { gesture: 'sad', v: -0.6, a: -0.4, words: ['残念', '売り切れ', '寂し', 'さみし', 'ごめん'] },
+  { gesture: 'shy', v: 0.4, a: -0.2, words: ['照れ', '恥ずかし', 'はずかし'] },
+  { gesture: 'beg', v: 0.6, a: 0.4, words: ['ぜひ', 'おすすめ', '連れて', '持って帰', 'お土産に', 'どうぞ', '手に取'] },
+  { gesture: 'joy', v: 0.8, a: 0.7, words: ['人気', '一番', 'No.1', 'ナンバーワン', '限定', '美味し', 'おいし', '大好き', '愛され', 'うれし', '嬉し', '楽し'] },
+  { gesture: 'thanks', v: 0.5, a: -0.3, words: ['伝統', '職人', '創業', '丁寧', '手作り', '昔ながら', '歴史', 'こだわり'] },
+];
+const DEFAULT_EMOTION = { gesture: null, v: 0.3, a: 0.0 };
+
+export function inferEmotion(text) {
+  for (const rule of EMOTION_RULES) {
+    if (rule.words.some((w) => text.includes(w))) {
+      const excited = /[！!]/.test(text) ? 0.15 : 0;
+      return { gesture: rule.gesture, v: rule.v, a: round3(clamp(rule.a + excited, -1, 1)), source: 'keyword', keyword: rule.words.find((w) => text.includes(w)) };
+    }
+  }
+  return { ...DEFAULT_EMOTION, a: /[！!]/.test(text) ? 0.3 : DEFAULT_EMOTION.a, source: 'default' };
+}
+
+// 文頭の [タグ] を読む。プリセット名（[喜び]）、プリセット ID（[joy]）、感情座標（[V0.5 A-0.2]）に対応。
+export function parseTag(tag, presets = []) {
+  const va = tag.match(/V\s*([+-]?[\d.]+)\s*A\s*([+-]?[\d.]+)/i);
+  if (va) return { gesture: null, v: clamp(+va[1], -1, 1), a: clamp(+va[2], -1, 1), source: 'tag' };
+  const p = presets.find((m) => m.name === tag || m.id === tag);
+  if (p) return { gesture: p.id, v: p.valence, a: p.arousal, source: 'tag' };
+  return null;
+}
+
+export function parseScript(text, presets = []) {
+  const sentences = text
+    .replace(/\r/g, '')
+    .split(/(?<=[。！？!?])|\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const segments = [];
+  for (const raw of sentences) {
+    const m = raw.match(/^\[([^\]]+)\]\s*(.*)$/);
+    const body = (m ? m[2] : raw).trim();
+    if (!body) continue;
+    const tagged = m ? parseTag(m[1].trim(), presets) : null;
+    segments.push({ text: body, emotion: tagged || inferEmotion(body), tag: m ? m[1].trim() : null, tagError: m && !tagged });
+  }
+  return segments;
+}
+
+// scale: 中立姿勢からの振れ幅の倍率
+function appendTracks(dst, src, offset, axes, scale = 1) {
+  for (const id of AXIS_IDS) {
+    const n = axes[id].neutral;
+    for (const [t, v, e] of src.tracks[id] || []) {
+      const value = round3(n + (v - n) * scale);
+      dst[id].push(e ? [round3(t + offset), value, e] : [round3(t + offset), value]);
+    }
+  }
+}
+
+// 文の並びから 1 本のモーションを組み立てる。
+export function composeScriptMotion(segments, axes = DEFAULT_AXES, presets = [], { charsPerSec = DEFAULT_CHARS_PER_SEC, gap = 0.3, talkScale = 0.6, talkAmplitude = 0.5 } = {}) {
+  const tracks = { yaw: [], lift: [], pitch: [] };
+  const cues = [];
+  let t = 0;
+  for (const seg of segments) {
+    const speech = estimateSpeechSeconds(seg.text, charsPerSec);
+    const { v, a, gesture } = seg.emotion;
+    const preset = gesture ? presets.find((p) => p.id === gesture) : null;
+    const start = t;
+    let used = 0;
+    if (preset) {
+      appendTracks(tracks, preset, t, axes);
+      used = preset.duration;
+    }
+    // 残りの時間は、同じ感情を少し落ち着かせた「話している動き」で埋める
+    const rest = speech - used;
+    if (rest >= 1.2) {
+      const talk = generateFromVA(v * talkScale, a - 0.4, axes, { duration: rest });
+      // 話している間は控えめに動かす（動きすぎると「美味しそう」が下がる: JCSS2024）
+      appendTracks(tracks, talk, t + used, axes, talkAmplitude);
+      used += rest;
+    }
+    const duration = Math.max(used, speech);
+    cues.push({ t: round3(start), end: round3(start + duration), text: seg.text, v, a, gesture, voice: { rate: round3(0.85 + 0.25 * ((a + 1) / 2)), pitch: round3(1 + 0.3 * v) } });
+    t += duration + gap;
+  }
+  const n = neutralPose(axes);
+  const duration = round3(Math.max(t - gap + 0.5, 0.5));
+  for (const id of AXIS_IDS) {
+    if (tracks[id].length === 0 || tracks[id][0][0] > 0) tracks[id].unshift([0, n[id]]);
+    tracks[id].push([duration, n[id]]);
+  }
+  const mean = (k) => (cues.length ? round3(cues.reduce((s, c) => s + c[k], 0) / cues.length) : 0);
+  return { id: 'script', name: '説明文モーション', valence: mean('v'), arousal: mean('a'), duration, loop: false, tracks, cues };
+}
