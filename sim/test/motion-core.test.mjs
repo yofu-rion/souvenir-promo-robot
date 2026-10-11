@@ -112,3 +112,15 @@ test('サンプルの説明文は約 1 分のモーションになり、実機�
   for (const c of m.cues) assert.ok(c.end - c.t >= estimateSpeechSeconds(c.text) - 0.002);
   assert.deepEqual(simulate(m, axes).report.warnings, []);
 });
+
+test('同梱の説明文サンプルはすべて約 1 分で、実機の上限内に収まる', () => {
+  const axes = allAxes();
+  for (const file of ['sample-souvenir.txt', 'neji-choco.txt']) {
+    const text = fs.readFileSync(new URL(`../scripts/${file}`, import.meta.url), 'utf8');
+    const segs = parseScript(text, presets.motions);
+    assert.ok(segs.every((s) => !s.tagError), file);
+    const m = composeScriptMotion(segs, axes, presets.motions);
+    assert.ok(m.duration > 45 && m.duration < 75, `${file}: ${m.duration}`);
+    assert.deepEqual(simulate(m, axes).report.warnings, [], file);
+  }
+});

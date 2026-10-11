@@ -161,6 +161,7 @@
   .seg-emo { font-size: 0.72rem; font-weight: 600; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .seg-emo.err { color: var(--warn); }
   .seg-text { min-width: 0; overflow-wrap: anywhere; }
+  select { font: 0.85rem var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
   textarea {
     width: 100%; min-height: 15rem; resize: vertical; font: 0.78rem/1.5 var(--font-data); color: var(--ink);
     background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px;
@@ -214,6 +215,12 @@
           <ol class="segments" id="segments" aria-label="文ごとの感情と開始時刻"></ol>
         </div>
         <div class="controls">
+          <label class="field" for="scriptSelect">サンプル
+            <select id="scriptSelect">
+              <option value="scripts/neji-choco.txt">ネジチョコ（北九州）</option>
+              <option value="scripts/sample-souvenir.txt">やまびこ饅頭（架空）</option>
+            </select>
+          </label>
           <button class="primary" type="button" id="scriptBtn">モーションを作って再生</button>
           <label class="field" for="cps">話す速さ <input id="cps" type="range" min="4" max="8" step="0.25" value="5.5"> <output id="cpsOut">5.5 字/秒</output></label>
           <span class="hint" id="scriptInfo"></span>
@@ -861,13 +868,18 @@ try {
   $('bubble').textContent = 'presets.json を読み込めませんでした。npm run sim で起動したローカルサーバーから開いてください。感情マップからの生成は使えます。';
 }
 buildPresetButtons();
-try {
-  const res = await fetch('scripts/sample-souvenir.txt');
-  if (!res.ok) throw new Error(res.statusText);
-  $('scriptText').value = await res.text();
-} catch {
-  $('scriptText').value = 'こんにちは！ぼくは「やまびこ饅頭」です。\n実は、駅のお土産ランキングで一番人気なんだ！\n旅の思い出に、ぜひぼくを連れて帰ってね。';
+async function loadScript(path) {
+  try {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(res.statusText);
+    $('scriptText').value = await res.text();
+    $('scriptInfo').textContent = '';
+  } catch {
+    $('scriptInfo').textContent = `${path} を読み込めませんでした。説明文を直接入力してください`;
+  }
 }
+$('scriptSelect').addEventListener('change', () => loadScript($('scriptSelect').value));
+await loadScript($('scriptSelect').value);
 const first = presets.motions.find((m) => m.id === 'beckon') || generateFromVA(0.5, 0.5, axes);
 start(first, { speak: false });
 requestAnimationFrame(frame);
