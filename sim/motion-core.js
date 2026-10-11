@@ -93,7 +93,8 @@ export function stepAxis(state, target, cfg, dt) {
 
 // モーション全体を事前に計算する。指令値（cmd）と実機を模した応答（act）を返す。
 // init には直前の姿勢 { yaw: {pos, vel}, ... } を渡すと、そこから滑らかに遷移する。
-export function simulate(motion, axes, { intensity = 1, tempo = 1, dt = 0.01, init = null, settle = 0.4 } = {}) {
+// blend: init から始めるとき、指令値を直前の姿勢からなめらかにつなぐ時間（秒）。
+export function simulate(motion, axes, { intensity = 1, tempo = 1, dt = 0.01, init = null, settle = 0.4, blend = 0.5 } = {}) {
   const playDuration = motion.duration / tempo;
   const total = playDuration + (motion.loop ? 0 : settle);
   const steps = Math.max(1, Math.ceil(total / dt));
@@ -115,6 +116,10 @@ export function simulate(motion, axes, { intensity = 1, tempo = 1, dt = 0.01, in
     const time = i * dt;
     t[i] = time;
     const c = commandAt(motion, Math.min(time, playDuration) * tempo, axes, { intensity });
+    if (init && time < blend) {
+      const u = EASINGS.inOut(time / blend);
+      for (const id of AXIS_IDS) if (init[id]) c[id] = init[id].pos + (c[id] - init[id].pos) * u;
+    }
     for (const id of AXIS_IDS) {
       if (i > 0) stepAxis(state[id], c[id], axes[id], dt);
       cmd[id][i] = c[id];
@@ -369,4 +374,118 @@ export function composeScriptMotion(segments, axes = DEFAULT_AXES, presets = [],
   }
   const mean = (k) => (cues.length ? round3(cues.reduce((s, c) => s + c[k], 0) / cues.length) : 0);
   return { id: 'script', name: '説明文モーション', valence: mean('v'), arousal: mean('a'), duration, loop: false, tracks, cues };
+}
+
+// ---------- 音楽に合わせたダンス（本家 SRR の中心となる振る舞い） ----------
+//
+// 報道・論文によると、本家は回転昇降ステージに載せた商品を音楽に合わせて回転・上下させ、
+// 最後におねだりする。ここでは拍（BPM）に合わせてキーフレームを打つ。
+
+export const DANCE_STYLES = {
+  bounce: { label: 'ノリノリ', arousal: 0.8 },
+  spin: { label: 'くるくる', arousal: 0.6 },
+  sway: { label: 'ゆらゆら', arousal: 0.1 },
+};
+
+export function generateDance(axes = DEFAULT_AXES, { bpm = 120, bars = 4, style = 'bounce', beatsPerBar = 4 } = {}) {
+  const beat = 60 / clamp(bpm, 40, 200);
+  const n = neutralPose(axes);
+  const lead = 0.4;
+  const total = bars * beatsPerBar;
+  const tracks = { yaw: [[0, n.yaw]], lift: [[0, n.lift]], pitch: [[0, n.pitch]] };
+  // 距離 d を時間 dt で inOut 移動するときに速度・加速度上限を超えない最大距離
+  const reach = (cfg, dt) => Math.min(0.9 * cfg.vmax * dt / 2, 0.8 * cfg.amax * dt * dt / 4);
+  const push = (id, t, v, e = 'inOut') => tracks[id].push([round3(t), round3(clamp(v, axes[id].min, axes[id].max)), e]);
+  const liftSpan = axes.lift.max - axes.lift.min;
+
+  for (let b = 0; b < total; b++) {
+    const t = lead + b * beat;
+    const side = b % 2 === 0 ? 1 : -1;
+    if (style === 'spin') {
+      // 3 拍は小さく弾み、小節の最後の拍で 1 段回る（三角波で ±2 段まで）
+      const step = Math.min(90, reach(axes.yaw, beat));
+      const pattern = [1, 2, 1, 0, -1, -2, -1, 0];
+      const bar = Math.floor(b / beatsPerBar);
+      const lastBeat = b % beatsPerBar === beatsPerBar - 1;
+      if (lastBeat) push('yaw', t + beat, pattern[bar % pattern.length] * step);
+      const hop = Math.min(liftSpan * 0.25, reach(axes.lift, beat / 2));
+      push('lift', t, n.lift);
+      push('lift', t + beat / 2, n.lift + hop);
+      push('pitch', t + beat / 2, n.pitch + 6);
+      push('pitch', t + beat, n.pitch);
+    } else if (style === 'sway') {
+      // 2 拍で左右に揺れ、1 小節かけて上下にゆっくり波打つ
+      const amp = Math.min(35, reach(axes.yaw, beat * 2) / 2);
+      if (b % 2 === 0) push('yaw', t + beat * 2, side * (b % 4 === 0 ? 1 : -1) * amp);
+      if (b % beatsPerBar === 0) {
+        push('lift', t + beat * beatsPerBar / 2, n.lift + liftSpan * 0.2);
+        push('lift', t + beat * beatsPerBar, n.lift);
+      }
+      if (b % 2 === 0) push('pitch', t + beat * 2, n.pitch + (b % 4 === 0 ? 8 : -4));
+    } else {
+      // ノリノリ: 拍で沈み裏拍で跳ねる。拍ごとに左右へ振る
+      const amp = Math.min(30, reach(axes.yaw, beat) / 2);
+      const hop = Math.min(liftSpan * 0.4, reach(axes.lift, beat / 2) / 1.2);
+      push('yaw', t + beat / 2, side * amp);
+      push('lift', t, n.lift - hop * 0.2);
+      push('lift', t + beat / 2, n.lift + hop);
+      push('pitch', t + beat / 2, n.pitch + side * 8);
+    }
+  }
+  // 最後の拍の次で決めポーズ → 1 拍止める → 中立へ戻る
+  const end = lead + total * beat;
+  const pose = end + Math.max(beat, 0.5);
+  const hold = pose + Math.max(beat, 0.5);
+  const duration = round3(hold + Math.max(0.8, beat * 2));
+  const finalPose = { yaw: n.yaw, lift: Math.min(axes.lift.max, n.lift + liftSpan * 0.4), pitch: n.pitch + 12 };
+  for (const id of AXIS_IDS) {
+    push(id, pose, finalPose[id]);
+    push(id, hold, finalPose[id]);
+    tracks[id].push([duration, n[id], 'inOut']);
+  }
+  const info = DANCE_STYLES[style] || DANCE_STYLES.bounce;
+  return {
+    id: `dance-${style}`,
+    name: `ダンス（${info.label}・${Math.round(bpm)} BPM）`,
+    valence: 0.8,
+    arousal: info.arousal,
+    duration,
+    loop: false,
+    tracks,
+    beats: [{ t: lead, bpm, count: total + 1 }],
+  };
+}
+
+// 複数のモーションを順番につなぐ。各ステップのセリフは cues になり、説明文モーションと同じく読み上げ同期される。
+export function composeSequence(steps, axes = DEFAULT_AXES, { gap = 0.2, name = 'シーケンス', id = 'sequence' } = {}) {
+  const tracks = { yaw: [], lift: [], pitch: [] };
+  const cues = [];
+  const beats = [];
+  let t = 0;
+  for (const step of steps) {
+    const m = step.motion;
+    appendTracks(tracks, m, t, axes);
+    const text = step.speech ?? m.speech;
+    if (text) cues.push({ t: round3(t), end: round3(t + m.duration), text, v: m.valence ?? 0, a: m.arousal ?? 0, gesture: m.id, voice: step.voice ?? m.voice ?? { rate: 1, pitch: 1 }, label: step.label ?? m.name });
+    for (const b of m.beats || []) beats.push({ ...b, t: round3(b.t + t) });
+    t += m.duration + gap;
+  }
+  const n = neutralPose(axes);
+  const duration = round3(Math.max(t - gap, 0.5));
+  for (const id of AXIS_IDS) {
+    if (tracks[id].length === 0 || tracks[id][0][0] > 0) tracks[id].unshift([0, n[id]]);
+    tracks[id].push([duration, n[id]]);
+  }
+  const vs = steps.map((s) => s.motion.valence ?? 0);
+  const as = steps.map((s) => s.motion.arousal ?? 0);
+  const mean = (xs) => round3(xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length));
+  return { id, name, valence: mean(vs), arousal: mean(as), duration, loop: false, tracks, cues, beats };
+}
+
+// 動かない比較条件（本家の論文の「通常条件＝商品説明」に相当）
+export function staticMotion(axes, duration, name = '動かない') {
+  const n = neutralPose(axes);
+  const tracks = {};
+  for (const id of AXIS_IDS) tracks[id] = [[0, n[id]], [duration, n[id]]];
+  return { id: 'static', name, valence: 0, arousal: -0.5, duration, loop: false, tracks };
 }

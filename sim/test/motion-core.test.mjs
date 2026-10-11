@@ -44,8 +44,8 @@ test('同梱プリセットはすべて妥当で、既定の軸設定で警告�
     assert.deepEqual(validateMotion(m), [], m.id);
     assert.deepEqual(simulate(m, axes).report.warnings, [], m.id);
   }
-  for (const id of Object.values(presets.events)) {
-    assert.ok(presets.motions.some((m) => m.id === id), `event target ${id}`);
+  for (const ids of Object.values(presets.events)) {
+    for (const id of ids) assert.ok(id === 'dance' || presets.motions.some((m) => m.id === id), `event target ${id}`);
   }
 });
 
@@ -123,4 +123,40 @@ test('同梱の説明文サンプルはすべて約 1 分で、実機の上限�
     assert.ok(m.duration > 45 && m.duration < 75, `${file}: ${m.duration}`);
     assert.deepEqual(simulate(m, axes).report.warnings, [], file);
   }
+});
+
+import { generateDance, composeSequence, DANCE_STYLES } from '../motion-core.js';
+
+test('generateDance はどのスタイル・テンポでも実機の上限内に収まり、拍の情報を持つ', () => {
+  const axes = allAxes();
+  for (const style of Object.keys(DANCE_STYLES)) {
+    for (const bpm of [60, 90, 120, 150, 180]) {
+      const m = generateDance(axes, { bpm, style });
+      assert.deepEqual(validateMotion(m), [], `${style} ${bpm}`);
+      assert.deepEqual(simulate(m, axes).report.warnings, [], `${style} ${bpm}`);
+      assert.equal(m.beats[0].bpm, bpm);
+    }
+  }
+});
+
+test('composeSequence はモーションをつなぎ、セリフと拍の時刻をずらす', () => {
+  const axes = allAxes();
+  const byId = (id) => presets.motions.find((m) => m.id === id);
+  const dance = generateDance(axes, { bpm: 120 });
+  const seq = composeSequence([{ motion: byId('pickme') }, { motion: dance }, { motion: byId('takehome') }], axes, { gap: 0.2 });
+  assert.deepEqual(validateMotion(seq), []);
+  assert.deepEqual(seq.cues.map((c) => c.text), ['手に取ってほしいな', 'うちに連れてってあげて']);
+  assert.equal(seq.beats[0].t, Math.round((byId('pickme').duration + 0.2 + dance.beats[0].t) * 1000) / 1000);
+  assert.deepEqual(simulate(seq, axes).report.warnings, []);
+});
+
+test('動作の途中から別のモーションに切り替えても、急な指令の飛びで警告が出ない', () => {
+  const axes = allAxes();
+  const pickme = presets.motions.find((m) => m.id === 'pickme');
+  const first = simulate(pickme, axes);
+  const i = Math.round(1.5 / first.dt);
+  const init = {};
+  for (const id of AXIS_IDS) init[id] = { pos: first.act[id][i], vel: first.vel[id][i] };
+  const dance = generateDance(axes, { bpm: 120, style: 'spin' });
+  assert.deepEqual(simulate(dance, axes, { init }).report.warnings, []);
 });

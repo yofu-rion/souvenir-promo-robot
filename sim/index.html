@@ -131,6 +131,9 @@
 
   #vapad { display: block; width: 100%; aspect-ratio: 1; max-width: 100%; cursor: crosshair; border-radius: 8px; touch-action: none; }
 
+  .flows { display: grid; gap: 8px; }
+  .flows button { display: grid; gap: 2px; text-align: left; }
+  .flows small { color: var(--muted); font-size: 0.75rem; font-weight: 400; }
   .events { display: grid; grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); gap: 8px; }
   .events button { display: grid; gap: 2px; text-align: left; }
   .events button small { color: var(--muted); font-size: 0.72rem; }
@@ -234,6 +237,23 @@
         <div class="presets" id="presets"></div>
       </section>
 
+      <section class="panel" aria-label="本家の振る舞い">
+        <div class="panel-head"><h2>本家 SRR の振る舞い</h2><span class="hint">論文・報道の記述から再構成</span></div>
+        <div class="controls">
+          <label class="field" for="bpm">テンポ <input id="bpm" type="range" min="60" max="180" step="5" value="120"> <output id="bpmOut">120 BPM</output></label>
+          <label class="field" for="danceStyle">ダンス
+            <select id="danceStyle"><option value="bounce">ノリノリ</option><option value="spin">くるくる</option><option value="sway">ゆらゆら</option></select>
+          </label>
+          <label class="field" for="metronome"><input id="metronome" type="checkbox" checked> 拍の音を鳴らす</label>
+        </div>
+        <div class="flows">
+          <button type="button" data-flow="full"><b>通しで再生</b><small>呼びかけ → お礼 → 手に取って → ダンス → 連れて帰って</small></button>
+          <button type="button" data-flow="dance"><b>ダンスだけ</b><small>拍に合わせて回転・上下（Playful Recommendation）</small></button>
+          <button type="button" data-flow="stimulus"><b>JCSS 実験刺激</b><small>約 3 秒の上下運動＋「お菓子です。買って下さい」</small></button>
+          <button type="button" data-flow="static"><b>比較：動かず説明だけ</b><small>論文の「通常条件」に相当</small></button>
+        </div>
+      </section>
+
       <section class="panel" aria-label="感情マップ">
         <div class="panel-head"><h2>感情マップから生成</h2><span class="hint">クリックした点の感情で動きを自動生成</span></div>
         <canvas id="vapad"></canvas>
@@ -272,7 +292,7 @@
 <script type="module">
 import {
   AXIS_IDS, cloneAxes, simulate, generateFromVA, validateMotion, toCSV,
-  parseScript, composeScriptMotion,
+  parseScript, composeScriptMotion, generateDance, composeSequence, staticMotion,
 } from './motion-core.js';
 
 const THREE = window.THREE;
@@ -292,6 +312,10 @@ let simTempo = 1;
 let cueIdx = 0;
 let speaking = false;
 let holdSince = null;
+// 拍（メトロノーム）
+let beatTimes = [];
+let beatPtr = 0;
+let audioCtx = null;
 
 // ---------- テーマ ----------
 let tokens = {};
@@ -478,7 +502,9 @@ function start(m, { speak = true, quiet = false, fromState = true } = {}) {
   playT = 0;
   cueIdx = 0;
   holdSince = null;
-  if (!m.cues) renderSegments(null);
+  beatTimes = (m.beats || []).flatMap((b) => Array.from({ length: b.count }, (_, i) => ({ t: b.t + (i * 60) / b.bpm, accent: i % 4 === 0 })));
+  beatPtr = 0;
+  if (m.id !== 'script') renderSegments(null);
   playing = true;
   if (!quiet) $('playBtn').textContent = '一時停止';
   $('timelineTitle').textContent = `タイムライン ・ ${m.name}`;
@@ -560,6 +586,8 @@ $('segments').addEventListener('click', (e) => {
   const i = +b.dataset.i;
   playT = motion.cues[i].t / simTempo;
   cueIdx = i;
+  beatPtr = beatTimes.findIndex((b) => b.t >= motion.cues[i].t);
+  if (beatPtr < 0) beatPtr = beatTimes.length;
   holdSince = null;
   playing = true;
   $('playBtn').textContent = '一時停止';
@@ -591,7 +619,7 @@ function advanceCues(dt) {
     const c = cues[cueIdx];
     $('bubble').textContent = c.text;
     $('bubble').hidden = false;
-    markSegment(cueIdx);
+    if (motion.id === 'script') markSegment(cueIdx);
     say(c.text, c.voice);
     cueIdx++;
   }
@@ -623,7 +651,7 @@ function renderTimelineStatic() {
   g.strokeStyle = tokens.line;
   g.fillStyle = tokens.muted;
   g.lineWidth = 1;
-  const step = dur > 30 ? 5 : dur > 6 ? 1 : 0.5;
+  const step = dur > 30 ? 5 : dur > 12 ? 2 : dur > 6 ? 1 : 0.5;
   for (let t = 0; t <= dur + 1e-6; t += step) {
     g.beginPath(); g.moveTo(x(t), TL.top); g.lineTo(x(t), h - TL.bottom); g.stroke();
     g.textAlign = 'center';
@@ -719,13 +747,25 @@ function drawVaPad() {
   g.globalAlpha = 1;
 
   g.font = '600 11px "IBM Plex Sans JP", sans-serif';
+  // 近い点はラベルが重なるので、重なる位置なら上下にずらして置く
+  const placed = [];
   for (const m of presets.motions) {
     const [x, y] = vaToXY(m.valence, m.arousal, s);
     const active = motion && motion.id === m.id;
     g.fillStyle = active ? tokens.accent : tokens.ink;
     g.beginPath(); g.arc(x, y, active ? 5 : 3.5, 0, Math.PI * 2); g.fill();
-    g.textAlign = x > s * 0.75 ? 'right' : 'left';
-    g.fillText(m.name, x + (x > s * 0.75 ? -8 : 8), y + 4);
+    const right = x > s * 0.75;
+    const w = g.measureText(m.name).width;
+    const lx = right ? x - 8 - w : x + 8;
+    let ly = y + 4;
+    for (const dy of [0, -13, 13, -26, 26]) {
+      const box = { x: lx, y: y + 4 + dy - 10, w, h: 12 };
+      if (!placed.some((p) => box.x < p.x + p.w && p.x < box.x + box.w && box.y < p.y + p.h && p.y < box.y + box.h)) {
+        placed.push(box); ly = y + 4 + dy; break;
+      }
+    }
+    g.textAlign = 'left';
+    g.fillText(m.name, lx, ly);
   }
   if (vaMarker) {
     const [x, y] = vaToXY(vaMarker.v, vaMarker.a, s);
@@ -805,24 +845,64 @@ $('copyCsvBtn').addEventListener('click', () => {
   copyText(toCSV(fresh, axes, 50), 'CSV ');
 });
 
+// ---------- 本家の振る舞い ----------
+function click(accent) {
+  if (!$('metronome').checked) return;
+  try {
+    audioCtx ??= new AudioContext();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = accent ? 1320 : 880;
+    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.09);
+  } catch { /* 音が出せない環境では無音で続ける */ }
+}
+const currentDance = () => generateDance(axes, { bpm: +$('bpm').value, style: $('danceStyle').value });
+const presetById = (id) => (id === 'dance' ? currentDance() : presets.motions.find((m) => m.id === id));
+function playIds(ids, name) {
+  const motions = ids.map(presetById).filter(Boolean);
+  if (motions.length === 0) return;
+  if (motions.length === 1) { start(motions[0]); return; }
+  start(composeSequence(motions.map((motion) => ({ motion })), axes, { name, id: 'sequence' }));
+}
+$('bpm').addEventListener('input', () => { $('bpmOut').textContent = `${$('bpm').value} BPM`; });
+document.querySelector('.flows').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  try { audioCtx ??= new AudioContext(); audioCtx.resume(); } catch { /* 無音で続ける */ }
+  const flow = b.dataset.flow;
+  if (flow === 'full') playIds(['beckon', 'thanks', 'pickme', 'dance', 'takehome'], '本家フロー（通し）');
+  if (flow === 'dance') start(currentDance());
+  if (flow === 'stimulus') playIds(['updown'], 'JCSS 実験刺激');
+  if (flow === 'static') {
+    const text = 'こちらは北九州のネジチョコです。ボルトとナットの形をしたチョコレートで、実際に締めて遊べます。';
+    start(composeSequence([{ motion: staticMotion(axes, 9, '動かず説明だけ'), speech: text }], axes, { name: '比較：動かず説明だけ', id: 'static' }));
+  }
+});
+
 // ---------- 起動 ----------
 function buildPresetButtons() {
   $('presets').innerHTML = presets.motions.map((m) => `
-    <button type="button" data-id="${m.id}" aria-pressed="false">${m.name}
+    <button type="button" data-id="${m.id}" aria-pressed="false" title="${m.source || '本プロジェクトで設計'}">${m.name}
       <small>V${m.valence >= 0 ? '+' : ''}${m.valence.toFixed(1)} A${m.arousal >= 0 ? '+' : ''}${m.arousal.toFixed(1)}</small>
     </button>`).join('');
   $('presets').addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (b) start(presets.motions.find((m) => m.id === b.dataset.id));
   });
+  const eventIds = (ev) => [].concat(presets.events[ev] || []);
   $('events').innerHTML = Object.entries(EVENT_LABELS).map(([ev, label]) => {
-    const target = presets.motions.find((m) => m.id === presets.events[ev]);
-    return `<button type="button" data-event="${ev}">${label}<small>→ ${target ? target.name : '未設定'}</small></button>`;
+    const names = eventIds(ev).map((id) => (id === 'dance' ? 'ダンス' : presets.motions.find((m) => m.id === id)?.name || id));
+    return `<button type="button" data-event="${ev}">${label}<small>→ ${names.length ? names.join(' → ') : '未設定'}</small></button>`;
   }).join('');
   $('events').addEventListener('click', (e) => {
     const b = e.target.closest('button');
-    const target = b && presets.motions.find((m) => m.id === presets.events[b.dataset.event]);
-    if (target) start(target);
+    if (!b) return;
+    try { audioCtx ??= new AudioContext(); audioCtx.resume(); } catch { /* 無音で続ける */ }
+    playIds(eventIds(b.dataset.event), `${EVENT_LABELS[b.dataset.event]}への反応`);
   });
 }
 
@@ -832,6 +912,7 @@ function frame(ts) {
   last = ts;
   if (playing && sim) {
     playT += motion.cues ? advanceCues(dt) : dt;
+    while (beatPtr < beatTimes.length && beatTimes[beatPtr].t / simTempo <= playT) click(beatTimes[beatPtr++].accent);
     if (playT >= sim.duration) {
       if (motion.loop) {
         start(motion, { quiet: true });
