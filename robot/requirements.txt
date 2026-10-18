@@ -1,0 +1,11 @@
+# 実機用の Python パッケージ（tools/setup-pi.sh が .venv に入れる）。
+# picamera2・libcamera・lgpio・gpiozero・numpy・opencv・pyserial・smbus2 は apt 版を使う（.venv は --system-site-packages）。
+
+# サーボドライバ PCA9685（I2C）
+adafruit-circuitpython-pca9685
+adafruit-circuitpython-servokit
+# 設定ファイル
+pyyaml
+# 音声の再生・録音（PortAudio 経由）
+sounddevice
+soundfile
