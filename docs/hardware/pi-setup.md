@@ -1,32 +1,35 @@
 # 実機（Raspberry Pi）の環境構築
 
-実機の制御には Raspberry Pi 5（Raspberry Pi OS / Debian 13 trixie）を使う。
+駆動ユニット2基（昇降サーボ・ヨーサーボ・ロードセル）を Raspberry Pi 5 1台で動かす。ピン割り当て・電源・受け入れ確認は、要件ドキュメント「[商品自己推薦ロボット システム要件（実機立ち上げ用）](https://claude.ai/artifact/F5UaW2FXtHF9ZjsqB2cjcc)」が正。
 
 ## セットアップ
 
 ```sh
-tools/setup-pi.sh                    # apt・インターフェース・.venv・Node（何度実行してもよい）
-sudo reboot                          # UART（GPIO14/15）を使うときだけ必要
+tools/setup-pi.sh                    # apt・ブートローダー・overlay・.venv・Node（何度実行してもよい）
+sudo reboot                          # ブートローダー更新と PWM overlay の反映に必要
 .venv/bin/python tools/check-env.py  # 接続機器の確認（--say で音声合成の声を鳴らす）
 ```
+
+アンプ基板の overlay が決まったら、`I2S_OVERLAY=max98357a tools/setup-pi.sh` のように指定して実行し直す（未確定事項）。
 
 ## 入るもの
 
 | 用途 | 中身 |
 | --- | --- |
+| サーボ PWM | `config.txt` に `pwm-2chan`（GPIO12/13 のハード PWM、昇降）と `pwm-pio` ×2（GPIO16/23、ヨー）。sysfs `/sys/class/pwm` を gpio グループで操作できる |
+| ブートローダー | `rpi-eeprom-update -a`。2024-09 版では RP1 の PIO が起動せず、`pwm-pio` が使えない |
+| Python | `.venv`（`--system-site-packages`）。gpiozero・lgpio・numpy・pyserial・smbus2 は apt 版。PyYAML・PCA9685 用ライブラリは `robot/requirements.txt` から |
+| 重量 | HX711 は lgpio で読む（SCK GPIO5 共通、DT GPIO6/26） |
+| 音声 | ALSA/PipeWire（`aplay`）、Open JTalk（WAV の作成）、sox、ffmpeg |
 | モーション計算 | Node 20（`npm test` で `sim/motion-core.js` のテスト） |
-| Python | `.venv`（`--system-site-packages`）。picamera2・libcamera・lgpio・gpiozero・numpy・opencv・pyserial・smbus2 は apt 版を使い、それ以外は `robot/requirements.txt` から入れる |
-| モーター | PCA9685（I2C サーボドライバ）用の Adafruit ライブラリ。シリアルバスサーボやステッピングドライバ（UART）には pyserial を使う |
-| センサー | AI カメラ（IMX500）のファームウェアとモデル（`/usr/share/imx500-models`）。重量センサー（HX711）は lgpio で読む予定 |
-| 音声 | Open JTalk（日本語の音声合成）、ALSA/PipeWire、sounddevice、sox、ffmpeg |
 
-## インターフェース
+## 要件ドキュメントとの差分
 
-| バス | デバイス | ピン | 用途の例 |
-| --- | --- | --- | --- |
-| I2C | `/dev/i2c-1` | GPIO2（SDA）/ GPIO3（SCL） | PCA9685、ToF 距離センサー |
-| SPI | `/dev/spidev0.0`, `0.1` | GPIO8–11 | AD 変換、LED |
-| UART | `/dev/ttyAMA0`（再起動後） | GPIO14（TX）/ GPIO15（RX） | バスサーボ、TMC2209 |
-| GPIO | lgpio / gpiozero | 任意 | HX711（DT・SCK）、ステップ／方向 |
+- OS は要件の Bookworm ではなく Debian 13（trixie）版の Raspberry Pi OS。gpiozero・lgpio・pwm-pio は trixie でも同じように使える。
+- UART は要件のピン表にないため有効にしない。SPI と I2C は有効のまま（I2C は PCA9685 導入後に使う）。
 
-Pi 5 の GPIO は RP1 チップ経由なので、RPi.GPIO は使えない。代わりに lgpio か gpiozero を使う（RPi.GPIO 前提のライブラリは `python3-rpi-lgpio` の互換層で動く）。
+## メモ
+
+- Pi 5 の GPIO は RP1 チップ経由。RPi.GPIO と pigpio は使えないので、lgpio か gpiozero を使う。
+- ハード PWM は `pwmchip0` の ch0 = GPIO12、ch1 = GPIO13。50 Hz なら `period` = 20000000 ns。
+- pwm-pio は 1 本ごとに別の pwmchip（ch0 のみ）になる。番号は起動順で決まり GPIO の順ではない（例：`pwmchip1` = `pwm_pio@17` = GPIO23、`pwmchip2` = `pwm_pio@10` = GPIO16）。ソフトでは `device` のリンク先 `pwm_pio@<GPIO の16進>` から引く。

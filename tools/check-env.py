@@ -2,7 +2,7 @@
 """実機の環境と接続機器を確認する。
   使い方: .venv/bin/python tools/check-env.py [--say]
   --say を付けると、Open JTalk で合成した声を既定の出力から鳴らす。
-機器をつないだら実行し、I2C アドレス・カメラ・音声デバイスが見えているかを確かめる。
+機器をつないだら実行し、PWM・HX711・I2C・カメラ・音声デバイスが見えているかを確かめる。
 """
 import glob
 import importlib
@@ -57,10 +57,53 @@ def check_python_modules():
             print(NG, name, f'{type(e).__name__}: {e}')
 
 
+def check_power():
+    section('電源・ブートローダー')
+    t = run(['vcgencmd', 'get_throttled']).stdout.strip()
+    print(OK if t.endswith('=0x0') else NG, t, '' if t.endswith('=0x0') else '（電圧不足か温度制限の履歴あり）')
+    pending = os.path.exists('/boot/firmware/pieeprom.upd')
+    print(INFO if pending else OK, 'ブートローダー更新', '再起動待ち' if pending else '保留なし')
+    pio = os.path.exists('/dev/pio0')
+    print(OK if pio else NG, 'RP1 PIO（ヨーの pwm-pio に必要）', '/dev/pio0' if pio else 'なし（ブートローダー更新と再起動が必要）')
+
+
+def check_pwm():
+    section('サーボ PWM（昇降 GPIO12/13、ヨー GPIO16/23）')
+    for chip in sorted(glob.glob('/sys/class/pwm/pwmchip*')):
+        dev = os.path.basename(os.path.realpath(os.path.join(chip, 'device')))
+        with open(os.path.join(chip, 'npwm')) as f:
+            print(OK, os.path.basename(chip), dev, f'{f.read().strip()}ch')
+    if not glob.glob('/sys/class/pwm/pwmchip*'):
+        print(NG, 'pwmchip なし（config.txt の overlay と再起動を確認）')
+    out = run(['pinctrl', 'get', '12,13,16,23']).stdout
+    for line in out.splitlines():
+        print('    ', line.strip())
+
+
+def check_hx711():
+    section('重量 HX711（SCK GPIO5、DT GPIO6/26）')
+    try:
+        import lgpio
+        import time
+        h = lgpio.gpiochip_open(0)
+        try:
+            for gpio, label in [(6, '1基目'), (26, '2基目')]:
+                lgpio.gpio_claim_input(h, gpio, lgpio.SET_PULL_UP)
+                # HX711 は変換が終わるたびに DT を Low にする（10/80 Hz）。つながっていなければ High のまま
+                end, low = time.monotonic() + 0.3, False
+                while time.monotonic() < end and not low:
+                    low = lgpio.gpio_read(h, gpio) == 0
+                lgpio.gpio_free(h, gpio)
+                print(OK if low else INFO, f'{label} DT GPIO{gpio}', '応答あり' if low else '応答なし')
+        finally:
+            lgpio.gpiochip_close(h)
+    except Exception as e:
+        print(NG, 'GPIO を読めない', f'{type(e).__name__}: {e}')
+
+
 def check_buses():
     section('バス')
-    for pattern, label in [('/dev/i2c-1', 'I2C（GPIO2/3）'), ('/dev/spidev0.*', 'SPI0'),
-                           ('/dev/ttyAMA0', 'UART0（GPIO14/15、要再起動）'),
+    for pattern, label in [('/dev/i2c-1', 'I2C（GPIO2/3、PCA9685 導入後）'), ('/dev/spidev0.*', 'SPI0'),
                            ('/dev/ttyUSB*', 'USB シリアル'), ('/dev/ttyACM*', 'USB CDC')]:
         found = sorted(glob.glob(pattern))
         print(OK if found else INFO, label, ' '.join(found) or 'なし')
@@ -125,6 +168,9 @@ def check_tests():
 if __name__ == '__main__':
     check_board()
     check_python_modules()
+    check_power()
+    check_pwm()
+    check_hx711()
     check_buses()
     check_camera()
     check_audio('--say' in sys.argv)
