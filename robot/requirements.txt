@@ -9,3 +9,5 @@ pyyaml
 # 音声の再生・録音（PortAudio 経由）
 sounddevice
 soundfile
+# M5Stack リモコン（Bluetooth LE、BlueZ 経由）
+bleak

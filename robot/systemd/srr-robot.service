@@ -1,0 +1,25 @@
+# 商品自己推薦ロボットの常駐サービス。tools/install-service.sh が @REPO@ と @USER@ を埋めて
+# /etc/systemd/system/srr-robot.service に置く。
+[Unit]
+Description=Souvenir self-recommending robot (2 drive units)
+After=sound.target local-fs.target bluetooth.target
+Wants=sound.target bluetooth.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=gpio
+SupplementaryGroups=audio i2c
+WorkingDirectory=@REPO@/robot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@REPO@/.venv/bin/python -m srr run
+# 終了時は原点（下降・正面）へ戻してから PWM を止める。戻る時間を待つ
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

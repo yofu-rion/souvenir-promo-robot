@@ -1,0 +1,109 @@
+# 実機の設定。値の根拠は要件ドキュメント「商品自己推薦ロボット システム要件（実機立ち上げ用）」。
+# パルス幅は校正 CLI（python -m srr servo ...）で実測した値に置き換える。
+
+# DS3218 の角度版（270 または 180）。180 だとヨーのテーブル角は ±60° に絞られる
+servo_range_deg: 270
+
+pwm:
+  backend: sysfs        # sysfs（Pi 5 の GPIO PWM）／pca9685（導入後）／mock
+  frequency_hz: 50
+  pca9685_address: 0x40
+
+# 昇降：ホーン角 0°（最下）〜 −61.5°（最上）。ソフト上限は両端に 1° 余裕
+lift:
+  bottom_deg: 0.0
+  top_deg: -61.5
+  margin_deg: 1.0
+  min_stroke_s: 1.0     # 1 ストローク 1 s 以上（最高速度はここから決まる）
+  accel_deg_s2: 240.0
+
+# ヨー：テーブル角 ±90°、サーボ角 = −1.5 × テーブル角（ギア 48:32、逆回転）
+yaw:
+  table_limit_deg: 90.0
+  gear_ratio: -1.5
+  max_speed_deg_s: 60.0 # テーブル角で 60°/s 以下
+  accel_deg_s2: 240.0
+  present_deg: 45.0     # 客側へ向ける角度（テーブル角）
+
+# サーボのパルス幅。min/max はサーボ角 −range/2・+range/2、center はサーボ角 0°
+# （昇降 0° = 最下、テーブル正面）。invert でサーボ角の符号を反転する
+# リモコンの角度調整で保存した値は calibration.yaml に入り、ここの値より優先される
+# enabled: false にした基は読み飛ばす（配線していない基を外しておく）
+units:
+  - name: 1基目
+    enabled: true
+    product: ネジチョコ15個入（六角箱）
+    # 1 基目は配線で昇降とヨーの信号が入れ替わっているので、GPIO を入れ替えて合わせている
+    lift:
+      gpio: 16
+      pulse_min_us: 500
+      pulse_center_us: 1500
+      pulse_max_us: 2500
+      invert: true         # 1 基目はサーボの向きの都合で、上げるとパルス幅が増える
+    yaw:
+      gpio: 12
+      pulse_min_us: 500
+      pulse_center_us: 1500
+      pulse_max_us: 2500
+      invert: false
+    scale:
+      dt_gpio: 6
+      offset: 0          # 風袋引きの生値（起動時に自動で取り直す）
+      counts_per_g: 420.0  # 仮の値（5 kg・1 mV/V・ゲイン128 の概算）。校正で置き換える
+      present_g: 30.0    # これ以上で「商品あり」
+    sound:
+      file: sounds/unit1.wav
+      volume: 0.8
+      channel: left      # left / right / both
+  - name: 2基目
+    enabled: false       # 2 基目を配線したら true にする
+    product: 日本製鉄缶ネジチョコ8個入（缶）
+    lift:
+      gpio: 13
+      pulse_min_us: 500
+      pulse_center_us: 1500
+      pulse_max_us: 2500
+      invert: false
+    yaw:
+      gpio: 23
+      pulse_min_us: 500
+      pulse_center_us: 1500
+      pulse_max_us: 2500
+      invert: false
+    scale:
+      dt_gpio: 26
+      offset: 0
+      counts_per_g: 420.0  # 仮の値（5 kg・1 mV/V・ゲイン128 の概算）。校正で置き換える
+      present_g: 30.0
+    sound:
+      file: sounds/unit2.wav
+      volume: 0.8
+      channel: right
+
+hx711:
+  enabled: false         # 重量センサーを使うか。false のときは重さを見ず、台はいつも「商品あり」として動く
+  sck_gpio: 5
+  average_window: 8      # 移動平均のサンプル数（10 SPS で約 0.8 s）
+  absent_hold_s: 0.5     # この時間続けて「なし」なら取り去りと判定
+  return_hold_s: 2.0     # この時間続けて「あり」なら戻されたと判定
+  surge_g: 300.0         # 動作中に重量がこれ以上急に変わったら止める
+
+sequence:
+  auto_interval_s: 30.0  # 開始トリガー：一定間隔で 1 基ずつ交互に動かす
+  hold_top_s: 0.5        # 上昇後、旋回前の待ち
+  after_speech_s: 0.5    # 音声のあと、正面へ戻る前の待ち
+  homing_gap_s: 1.0      # 起動時の原点移動で基と基の間に空ける時間
+  homing_speed_scale: 0.3 # 原点移動は通常の 30% の速度
+
+audio:
+  device: plughw:CARD=sndrpihifiberry,DEV=0   # I2S アンプ（hifiberry-dac overlay）。aplay -L で確認
+  speech_fallback_s: 3.0 # 音声ファイルがないときの待ち時間
+
+# M5Stack リモコン（Bluetooth LE）。開始・停止と角度調整に使う（m5remote/）
+remote:
+  enabled: true
+  name: SRR-Remote       # M5Stack が広告する名前
+  start_paused: true     # 起動しても、リモコンで「開始」を押すまで動かさない
+
+# 終了時の姿勢を保存し、次の起動でそこからゆっくり原点へ戻す
+state_file: ~/.local/state/srr-robot/pose.json

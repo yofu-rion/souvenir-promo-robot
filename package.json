@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test sim/test/*.test.mjs",
-    "sim": "python3 -m http.server 8000 --directory sim"
+    "sim": "python3 -m http.server 8000 --directory sim",
+    "test:robot": "cd robot && ../.venv/bin/python -m unittest discover -s tests -t tests"
   }
 }

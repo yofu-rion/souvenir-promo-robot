@@ -87,6 +87,9 @@ def check_hx711():
         import time
         h = lgpio.gpiochip_open(0)
         try:
+            # SCK が High のままだと HX711 は休止して DT を High に保つので、先に Low にする
+            lgpio.gpio_claim_output(h, 5, 0)
+            time.sleep(0.2)
             for gpio, label in [(6, '1基目'), (26, '2基目')]:
                 lgpio.gpio_claim_input(h, gpio, lgpio.SET_PULL_UP)
                 # HX711 は変換が終わるたびに DT を Low にする（10/80 Hz）。つながっていなければ High のまま

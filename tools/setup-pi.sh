@@ -65,6 +65,12 @@ fi
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q -r robot/requirements.txt
 
+echo "== M5Stack の書き込み（PlatformIO、~/.venvs/pio）"
+if [ ! -x ~/.venvs/pio/bin/pio ]; then
+  python3 -m venv ~/.venvs/pio
+fi
+~/.venvs/pio/bin/pip install -q --upgrade platformio
+
 echo "== Node"
 node --version
 npm --version
