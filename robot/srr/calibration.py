@@ -50,8 +50,8 @@ def make_points(cfg, units) -> list[Point]:
             Point(u, 'lift', 'bottom', '下（0°）', 0.0),
             Point(u, 'lift', 'top', f'上（{top:+.1f}°）', top),
             Point(u, 'yaw', 'front', '正面（0°）', 0.0),
-            Point(u, 'yaw', 'plus', f'{cfg.yaw.hi:+.0f}°（客側）', cfg.yaw.hi),
-            Point(u, 'yaw', 'minus', f'{cfg.yaw.lo:+.0f}°', cfg.yaw.lo),
+            Point(u, 'yaw', 'plus', f'{cfg.yaw.hi:+.0f}°（客から見て右）', cfg.yaw.hi),
+            Point(u, 'yaw', 'minus', f'{cfg.yaw.lo:+.0f}°（客から見て左）', cfg.yaw.lo),
         ]
     return pts
 

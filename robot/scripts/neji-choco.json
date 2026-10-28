@@ -1,0 +1,125 @@
+{
+  "source": "sim/scripts/neji-choco.txt",
+  "sentences": [
+    {
+      "n": 1,
+      "text": "こんにちは！",
+      "gesture": "beckon",
+      "valence": 0.5,
+      "arousal": 0.75,
+      "voice": "01.wav"
+    },
+    {
+      "n": 2,
+      "text": "北九州から来た、ネジチョコです。",
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "02.wav"
+    },
+    {
+      "n": 3,
+      "text": "ぼく、見た目はボルトとナット。",
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "03.wav"
+    },
+    {
+      "n": 4,
+      "text": "でも、ちゃんとチョコレートなんだ。",
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "04.wav"
+    },
+    {
+      "n": 5,
+      "text": "なんと、ナットをくるくる回して、本当に締められるんだよ！",
+      "gesture": "surprise",
+      "valence": 0.3,
+      "arousal": 1,
+      "voice": "05.wav"
+    },
+    {
+      "n": 6,
+      "text": "八幡製鉄所が世界遺産になったのをきっかけに、鉄の街のお土産として生まれたんだ。",
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "06.wav"
+    },
+    {
+      "n": 7,
+      "text": "3Dプリンターを使って、細かいネジの形まで再現しているよ。",
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "07.wav"
+    },
+    {
+      "n": 8,
+      "text": "今は北九州の工場「ネジチョコラボラトリー」で作られているんだ。",
+      "gesture": "thanks",
+      "valence": 0.6,
+      "arousal": -0.1,
+      "voice": "08.wav"
+    },
+    {
+      "n": 9,
+      "text": "味は、定番のスイートと、鉄さびをイメージしたココア。",
+      "gesture": null,
+      "valence": 0.6,
+      "arousal": 0.4,
+      "voice": "09.wav"
+    },
+    {
+      "n": 10,
+      "text": "ホワイトや博多あまおう、門司港バナナもあるよ。",
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "10.wav"
+    },
+    {
+      "n": 11,
+      "text": "締めて遊んでから食べるのも、楽しいよ！",
+      "gesture": "joy",
+      "valence": 0.8,
+      "arousal": 0.85,
+      "voice": "11.wav"
+    },
+    {
+      "n": 12,
+      "text": "でも、暑いところはちょっと苦手なんだ。",
+      "gesture": null,
+      "valence": -0.3,
+      "arousal": -0.2,
+      "voice": "12.wav"
+    },
+    {
+      "n": 13,
+      "text": "五個入りと十五個入りから選べるよ。",
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "13.wav"
+    },
+    {
+      "n": 14,
+      "text": "鉄の街の旅の思い出に、ぜひぼくを連れて帰って！",
+      "gesture": "beg",
+      "valence": 0.6,
+      "arousal": 0.55,
+      "voice": "14.wav"
+    },
+    {
+      "n": 15,
+      "text": "ありがとう！",
+      "gesture": "thanks",
+      "valence": 0.6,
+      "arousal": 0.05,
+      "voice": "15.wav"
+    }
+  ]
+}

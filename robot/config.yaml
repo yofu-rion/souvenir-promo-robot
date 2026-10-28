@@ -15,15 +15,15 @@ lift:
   top_deg: -61.5
   margin_deg: 1.0
   min_stroke_s: 1.0     # 1 ストローク 1 s 以上（最高速度はここから決まる）
-  accel_deg_s2: 240.0
+  accel_deg_s2: 400.0   # 説明のうなずきが間延びしないよう大きめ（最高速度は min_stroke_s で要件どおり）
 
 # ヨー：テーブル角 ±90°、サーボ角 = −1.5 × テーブル角（ギア 48:32、逆回転）
 yaw:
   table_limit_deg: 90.0
   gear_ratio: -1.5
   max_speed_deg_s: 60.0 # テーブル角で 60°/s 以下
-  accel_deg_s2: 240.0
-  present_deg: 45.0     # 客側へ向ける角度（テーブル角）
+  accel_deg_s2: 360.0   # ダンスのキレのため（最高速度は max_speed_deg_s で要件どおり）
+  present_deg: 0.0      # お客さんの方（テーブル角）。お客さんは 2 基の正面に来る
 
 # サーボのパルス幅。min/max はサーボ角 −range/2・+range/2、center はサーボ角 0°
 # （昇降 0° = 最下、テーブル正面）。invert でサーボ角の符号を反転する
@@ -32,7 +32,8 @@ yaw:
 units:
   - name: 1基目
     enabled: true
-    product: ネジチョコ15個入（六角箱）
+    partner_side: -1     # お客さんから見て右（2026-10-22 に置き換え）。ヨーの−（お客さんから見て左）が 2 基目の方
+    product: 日本製鉄缶ネジチョコ8個入（缶）
     # 1 基目は配線で昇降とヨーの信号が入れ替わっているので、GPIO を入れ替えて合わせている
     lift:
       gpio: 16
@@ -52,18 +53,19 @@ units:
       counts_per_g: 420.0  # 仮の値（5 kg・1 mV/V・ゲイン128 の概算）。校正で置き換える
       present_g: 30.0    # これ以上で「商品あり」
     sound:
-      file: sounds/unit1.wav
-      volume: 0.8
-      channel: left      # left / right / both
+      file: sounds/can.wav   # 短い推薦（春日部つむぎ）
+      volume: 1.0        # 基ごとの音量。全体の音量（リモコンの「音量」）を掛ける
+      channel: right     # left / right / both。1 基目のスピーカーはアンプの右（2026-10-22 に実機で確認）
   - name: 2基目
-    enabled: false       # 2 基目を配線したら true にする
-    product: 日本製鉄缶ネジチョコ8個入（缶）
+    enabled: true
+    partner_side: 1      # お客さんから見て左（2026-10-22 に置き換え）。ヨーの＋（お客さんから見て右）が 1 基目の方
+    product: ネジチョコ15個入（六角箱）
     lift:
       gpio: 13
       pulse_min_us: 500
       pulse_center_us: 1500
       pulse_max_us: 2500
-      invert: false
+      invert: true         # 2 基目も、上げるとパルス幅が増える向き
     yaw:
       gpio: 23
       pulse_min_us: 500
@@ -76,9 +78,13 @@ units:
       counts_per_g: 420.0  # 仮の値（5 kg・1 mV/V・ゲイン128 の概算）。校正で置き換える
       present_g: 30.0
     sound:
-      file: sounds/unit2.wav
-      volume: 0.8
-      channel: right
+      file: sounds/hex.wav   # 短い推薦（ずんだもん）
+      volume: 1.0
+      channel: left      # 2 基目のスピーカーはアンプの左
+    explain:             # 1 基だけで動かすときに流す台本と声（2 基のときは sequence.duo）
+      plan: scripts/neji-choco.json   # node tools/script-plan.mjs sim/scripts/neji-choco.txt
+      voices: sounds/neji-choco       # tools/make-voice.py --plan … --out-dir sounds/neji-choco
+      dance: sounds/dance.wav         # tools/make-dance-music.py sounds/dance.wav（なければ踊らない）
 
 hx711:
   enabled: false         # 重量センサーを使うか。false のときは重さを見ず、台はいつも「商品あり」として動く
@@ -89,7 +95,23 @@ hx711:
   surge_g: 300.0         # 動作中に重量がこれ以上急に変わったら止める
 
 sequence:
-  auto_interval_s: 30.0  # 開始トリガー：一定間隔で 1 基ずつ交互に動かす
+  mode: explain          # cycle：短い推薦を 1 回／explain：台本で説明（units の explain）
+  motion_base: 2.0       # 説明の動きの大きさ。リモコンの「動き 100%」がこの倍率（2026-10-22 に決めた基準）
+  tempo_base: 1.5        # 説明の速さ（加速度の倍率）。リモコンの「速さ 100%」がこの倍率
+  # 2 基とも有効なときに流す台本（話す基の番号つき）。リモコンの「リモコン」タブの ◀ 台本 ▶ で選ぶ。
+  # 「入替」を押すと、話者 1 のキャラを 2 基目、話者 2 のキャラを 1 基目が受け持つ（声の左右も入れ替わる）。
+  # 選んだ台本と入替は settings.json に残る。1 基だけが話す文では、もう 1 基は相手の方を向いて聞く
+  programs:
+    - name: ネジチョコ 掛け合い
+      plan: scripts/neji-choco-duo.json   # node tools/script-plan.mjs sim/scripts/neji-choco-duo.txt
+      voices: sounds/neji-choco-duo       # tools/make-voice.py --plan … --voices 1=8,2=3（話者 1＝缶＝春日部つむぎ、話者 2＝六角箱＝ずんだもん）
+      dance: sounds/dance.wav
+      cast: [缶, 六角箱]                    # 話者 1, 2 のキャラ（リモコンの「入替」で受け持つ基を入れ替える）
+    - name: saku
+      plan: scripts/saku.json   # コメズの推薦 → クロズの推薦 → 2 基の掛け合い。話者 1＝コメズ、話者 2＝クロズ
+      voices: sounds/saku       # tools/make-voice.py --plan … --voices 1=2,2=13 --speed 1.1（四国めたん・青山龍星）
+      cast: [コメズ, クロズ]
+  auto_interval_s: 30.0  # 開始で動かすとき、台本が終わってから次までの秒数（リモコンの「設定 → 間隔」で変えると、そちらが優先）
   hold_top_s: 0.5        # 上昇後、旋回前の待ち
   after_speech_s: 0.5    # 音声のあと、正面へ戻る前の待ち
   homing_gap_s: 1.0      # 起動時の原点移動で基と基の間に空ける時間
@@ -99,10 +121,12 @@ audio:
   device: plughw:CARD=sndrpihifiberry,DEV=0   # I2S アンプ（hifiberry-dac overlay）。aplay -L で確認
   speech_fallback_s: 3.0 # 音声ファイルがないときの待ち時間
 
-# M5Stack リモコン（Bluetooth LE）。開始・停止と角度調整に使う（m5remote/）
+# M5Stack リモコン（Bluetooth LE か USB ケーブル）。開始・停止と角度調整に使う（m5remote/）
 remote:
   enabled: true
-  name: SRR-Remote       # M5Stack が広告する名前
+  transport: serial      # ble（Bluetooth LE）／serial（USB ケーブルで Pi につなぐ）
+  serial_port: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A49057234-if00   # M5Stack Core2（ttyACM0）
+  name: SRR-Remote       # M5Stack が広告する名前（ble のとき）
   start_paused: true     # 起動しても、リモコンで「開始」を押すまで動かさない
 
 # 終了時の姿勢を保存し、次の起動でそこからゆっくり原点へ戻す

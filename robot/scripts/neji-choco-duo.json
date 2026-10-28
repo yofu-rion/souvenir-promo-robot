@@ -1,0 +1,227 @@
+{
+  "source": "sim/scripts/neji-choco-duo.txt",
+  "sentences": [
+    {
+      "n": 1,
+      "text": "こんにちは！",
+      "speakers": [
+        2
+      ],
+      "gesture": "beckon",
+      "valence": 0.5,
+      "arousal": 0.75,
+      "voice": "01.wav"
+    },
+    {
+      "n": 2,
+      "text": "北九州から来た、ネジチョコです。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "02.wav"
+    },
+    {
+      "n": 3,
+      "text": "わたしもネジチョコ！",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0.3,
+      "voice": "03.wav"
+    },
+    {
+      "n": 4,
+      "text": "こっちは缶に入っているよ。",
+      "speakers": [
+        1
+      ],
+      "gesture": "beckon",
+      "valence": 0.5,
+      "arousal": 0.6,
+      "voice": "04.wav"
+    },
+    {
+      "n": 5,
+      "text": "ぼくたち、見た目はボルトとナット。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "05.wav"
+    },
+    {
+      "n": 6,
+      "text": "でも、ちゃんとチョコレートなんだ。",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "06.wav"
+    },
+    {
+      "n": 7,
+      "text": "なんと、ナットをくるくる回して、本当に締められるんだよ！",
+      "speakers": [
+        2
+      ],
+      "gesture": "surprise",
+      "valence": 0.3,
+      "arousal": 1,
+      "voice": "07.wav"
+    },
+    {
+      "n": 8,
+      "text": "3Dプリンターを使って、細かいネジの形まで再現しているんだって。",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "08.wav"
+    },
+    {
+      "n": 9,
+      "text": "八幡製鉄所が世界遺産になったのをきっかけに、鉄の街のお土産として生まれたんだ。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "09.wav"
+    },
+    {
+      "n": 10,
+      "text": "わたしは日本製鉄缶のネジチョコ。",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "10.wav"
+    },
+    {
+      "n": 11,
+      "text": "8個入りだよ。",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "11.wav"
+    },
+    {
+      "n": 12,
+      "text": "ぼくは15個入り。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "12.wav"
+    },
+    {
+      "n": 13,
+      "text": "北九州の工場「ネジチョコラボラトリー」で作られているんだ。",
+      "speakers": [
+        2
+      ],
+      "gesture": "thanks",
+      "valence": 0.6,
+      "arousal": -0.1,
+      "voice": "13.wav"
+    },
+    {
+      "n": 14,
+      "text": "味は、定番のスイートと、鉄さびをイメージしたココア。",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "14.wav"
+    },
+    {
+      "n": 15,
+      "text": "ホワイトや博多あまおう、門司港バナナもあるよ。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "15.wav"
+    },
+    {
+      "n": 16,
+      "text": "締めて遊んでから食べるのも、楽しいよ！",
+      "speakers": [
+        1
+      ],
+      "gesture": "joy",
+      "valence": 0.8,
+      "arousal": 0.85,
+      "voice": "16.wav"
+    },
+    {
+      "n": 17,
+      "text": "でも、暑いところはちょっと苦手なんだ。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": -0.3,
+      "arousal": -0.2,
+      "voice": "17.wav"
+    },
+    {
+      "n": 18,
+      "text": "25度以下の、涼しいところで保存してね。",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": -0.1,
+      "arousal": -0.3,
+      "voice": "18.wav"
+    },
+    {
+      "n": 19,
+      "text": "鉄の街の旅の思い出に、ぜひ連れて帰って！",
+      "speakers": [
+        1,
+        2
+      ],
+      "gesture": "beg",
+      "valence": 0.6,
+      "arousal": 0.55,
+      "voice": "19.wav"
+    },
+    {
+      "n": 20,
+      "text": "ありがとう！",
+      "speakers": [
+        1,
+        2
+      ],
+      "gesture": "thanks",
+      "valence": 0.6,
+      "arousal": 0.05,
+      "voice": "20.wav"
+    }
+  ]
+}

@@ -6,6 +6,15 @@ units:
       pulse_center_us: 1590.0
       pulse_max_us: 2389.2
     yaw:
-      pulse_min_us: 500.0
-      pulse_center_us: 1500.0
-      pulse_max_us: 2500.0
+      pulse_min_us: 540.0
+      pulse_center_us: 1554.0
+      pulse_max_us: 2590.0
+  2基目:
+    lift:
+      pulse_min_us: 475.0
+      pulse_center_us: 1475.0
+      pulse_max_us: 2530.8
+    yaw:
+      pulse_min_us: 410.0
+      pulse_center_us: 1430.0
+      pulse_max_us: 2410.0

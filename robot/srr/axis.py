@@ -17,6 +17,7 @@ class Axis:
         self.vel = 0.0
         self.target: float | None = None
         self.speed_scale = 1.0
+        self.accel_scale = 1.0   # 加速度の倍率（リモコンの「速さ」。100% を超えるとキビキビ動く）
 
     def to_servo(self, logical: float) -> float:
         return self.ratio * logical
@@ -50,7 +51,7 @@ class Axis:
         if self.pos is None or not self.moving:
             return
         lim = self.limits
-        vmax, amax = lim.vmax * self.speed_scale, lim.amax
+        vmax, amax = lim.vmax * self.speed_scale, lim.amax * self.accel_scale
         err = self.target - self.pos
         v_des = math.copysign(min(vmax, math.sqrt(2 * amax * abs(err))), err)
         dv = amax * dt

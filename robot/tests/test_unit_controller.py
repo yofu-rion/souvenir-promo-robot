@@ -10,8 +10,9 @@ from helpers import make_cfg, make_controller, run_for
 class InterlockWatcher:
     """毎周期、昇降とヨーが同時に動いていないか、昇降がヨー正面のときだけ動くかを見る。"""
 
-    def __init__(self, tc, units):
-        self.tc, self.units = tc, units
+    def __init__(self, tc, units, front_only=True):
+        # front_only: 昇降はヨーが正面のときだけ（通常のサイクル）。False なら同時に動かないことだけを見る（説明）
+        self.tc, self.units, self.front_only = tc, units, front_only
         self.prev = {u.name: u.pose() for u in units}
         self.max_jump_us = 0.0
         self.prev_us = {}
@@ -23,7 +24,7 @@ class InterlockWatcher:
                 lift_moved = q['lift'] != p['lift']
                 yaw_moved = q['yaw'] != p['yaw']
                 self.tc.assertFalse(lift_moved and yaw_moved, f'{u.name}: 昇降とヨーが同時に動いた')
-                if lift_moved:
+                if lift_moved and self.front_only:
                     self.tc.assertLessEqual(abs(q['yaw']), 0.5, f'{u.name}: ヨーが正面にないまま昇降した')
                 cfg = u.cfg
                 self.tc.assertTrue(cfg.lift.lo <= q['lift'] <= cfg.lift.hi)
@@ -149,6 +150,21 @@ class ControllerTest(unittest.TestCase):
             saved = json.load(f)
         self.assertEqual(saved['1基目'], {'lift': self.cfg.lift.home, 'yaw': 0.0})
         self.assertTrue(bus.powered_down)
+
+    def test_abort_while_lifting_turned_returns_yaw_to_front(self):
+        # 説明では横を向いたまま昇降する。その途中で止めても、下りてから正面へ戻る
+        ctl, units, _, _ = self.boot()
+        ctl.paused = True
+        run_for(ctl, 3)
+        u = units[1]
+        u.yaw.start_at(30.0)
+        u.lift.move_to(self.cfg.lift.home - 30.0)
+        run_for(ctl, 0.2)
+        self.assertTrue(u.lift.moving)
+        u.abort(State.IDLE)
+        run_for(ctl, 5)
+        self.assertTrue(u.at_home)
+        self.assertEqual(u.state, State.IDLE)
 
     def test_runs_without_scale(self):
         ctl, units, _, player = self.boot(use_bus=False)

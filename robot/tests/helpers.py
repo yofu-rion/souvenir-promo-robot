@@ -20,8 +20,11 @@ with open(os.path.join(ROBOT_DIR, 'config.yaml'), encoding='utf-8') as f:
 def make_cfg(tmpdir, **patch):
     raw = copy.deepcopy(BASE_RAW)
     raw['state_file'] = os.path.join(tmpdir, 'pose.json')
-    for u in raw['units']:  # テストは 2 基構成で動かす（config.yaml で無効にした基も有効にする）
+    for u, ch in zip(raw['units'], ('left', 'right')):  # テストは 2 基構成で動かす（config.yaml で無効にした基も有効にする）
         u['enabled'] = True
+        u['sound']['channel'] = ch   # テストは 1 基目＝左、2 基目＝右で確かめる（実機の配線とは別）
+    raw['sequence']['mode'] = 'cycle'   # 既定は短い推薦。説明のテストは sequence__mode で変える
+    raw['yaw']['present_deg'] = 45.0     # 通常のサイクルは「客側へ旋回」を確かめる（実機の config は正面＝0°）
     for path, value in patch.items():
         node = raw
         keys = path.split('__')

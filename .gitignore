@@ -2,5 +2,5 @@ node_modules/
 .venv/
 __pycache__/
 m5remote/.pio/
-# VOICEVOX で作った音声（tools/make-voice.py で作り直す）。利用規約の都合でリポジトリに入れない
-robot/sounds/*.wav
+# VOICEVOX の声・ダンスの音楽・句の時刻（tools/make-voice.py と make-dance-music.py で作り直す）。利用規約の都合でリポジトリに入れない
+robot/sounds/

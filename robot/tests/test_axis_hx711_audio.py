@@ -128,6 +128,37 @@ class AudioTest(unittest.TestCase):
         self.assertTrue((frames[:, 0] == 5000).all())
         self.assertTrue((frames[:, 1] == 0).all())
 
+    def test_stereo_swap(self):
+        path = os.path.join(tempfile.mkdtemp(), 's.wav')
+        with wave.open(path, 'wb') as w:
+            w.setnchannels(2)
+            w.setsampwidth(2)
+            w.setframerate(24000)
+            w.writeframes(np.tile(np.array([1000, -2000], dtype='<i2'), 10).tobytes())
+        frames = np.frombuffer(prepare(path, channel='stereo-swap')[0], dtype='<i2').reshape(-1, 2)
+        self.assertTrue((frames[:, 0] == -2000).all() and (frames[:, 1] == 1000).all())
+
+    def test_volume_above_100_is_limited_without_clipping(self):
+        rate = 24000
+        t = np.arange(rate * 2) / rate
+        # 前半は小さい声、後半は大きい声（そのまま 2 倍にすると割れる）
+        amp = np.where(t < 1.0, 4000, 30000)
+        wav = (amp * np.sin(2 * np.pi * 300 * t)).astype('<i2')
+        path = os.path.join(tempfile.mkdtemp(), 'v.wav')
+        with wave.open(path, 'wb') as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(wav.tobytes())
+        import time
+        t0 = time.perf_counter()
+        pcm, _ = prepare(path, volume=2.0, channel='both')
+        self.assertLess(time.perf_counter() - t0, 0.2)   # 制御ループの中で呼ぶので速く
+        out = np.frombuffer(pcm, dtype='<i2').reshape(-1, 2)[:, 0].astype(float)
+        self.assertAlmostEqual(np.abs(out[:int(rate * 0.8)]).max(), 8000, delta=10)   # 小さい声は 2 倍
+        self.assertLessEqual(np.abs(out).max(), 0.95 * 32767 + 1)                      # 大きい声は抑える
+        self.assertGreater(np.abs(out[int(rate * 1.5):]).max(), 30000)                 # 小さくしすぎない
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,12 +1,13 @@
 """1 基分の動作。昇降・ヨーの 2 軸と重量から、状態（待機 / 動作中 / 商品なし / 停止）を進める。
 
-動きは「ステップ」の列で表し、1 つずつ実行する。昇降とヨーを同時に動かすことはない。
-昇降はヨーが正面にあるときだけ動かす（上昇してから旋回、正面に戻してから下降）。
+動きは「ステップ」の列で表し、1 つずつ実行する。昇降とヨーを同時に動かすことはない（要件）。
+通常のサイクルは上昇してから旋回、正面に戻してから下降する。台本の説明（explain.py）では、
+客側を向いたまま昇降してうなずく（ヨーが止まっている間だけ昇降する）。
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from .axis import Axis
@@ -27,13 +28,37 @@ class State(Enum):
 
 @dataclass
 class Step:
-    kind: str            # lift / yaw / wait / speak
-    value: float = 0.0   # 目標角（論理角）か待ち時間
+    kind: str            # lift / yaw / wait / speak / talk / sync
+    value: float = 0.0   # 目標角（論理角）か待ち時間。talk ではヨーの中心
     speed: float = 1.0   # 速度の倍率（原点移動は遅くする）
+    file: str | None = None   # talk：流す声
+    label: str = ''           # talk：リモコンに出す「n/全体 文」
+    # talk：声の始まりからの時刻に合わせた動き (秒, 'lift'|'yaw', 目標の論理角, 速度の倍率[, 狙う時刻])
+    cues: list = field(default_factory=list)
+    end_lift: float | None = None   # talk：声が終わったら戻す高さ
+    channel: str | None = None      # talk：左右の指定を上書き（stereo＝左右に別々の声）
+    # talk：話す前のポーズの変更 (軸, 目標, 速さ) を順に出し、pre_lead 秒たったら（動いている途中でも）話し始める
+    pre: list = field(default_factory=list)
+    pre_lead: float = 0.0
+    barrier: Barrier | None = None  # sync：待ち合わせ
 
 
 class InterlockError(RuntimeError):
     pass
+
+
+class Barrier:
+    """2 基の掛け合いの待ち合わせ。全員が着いたら通す（一度通したらそのまま）。"""
+
+    def __init__(self, names):
+        self.names, self.arrived = set(names), set()
+
+    def arrive(self, name):
+        self.arrived.add(name)
+
+    @property
+    def released(self):
+        return self.arrived >= self.names
 
 
 class Unit:
@@ -46,6 +71,12 @@ class Unit:
         self.step: Step | None = None
         self.wait_left = 0.0
         self.speaking = False
+        self.talk_t = 0.0
+        self.talk_cues: list = []
+        self.talk_phase = 'start'   # start / speak / settle / return
+        self.talk_pre: list = []
+        self.talk_pre_t = 0.0
+        self.progress = ''       # 説明中の「n/全体 文」
         self.after_abort: State | None = None
         self.present_for = 0.0
         self.absent_for = 0.0
@@ -111,14 +142,25 @@ class Unit:
         self._set(State.ACTIVE)
         return True
 
+    def start_explain(self, steps: list[Step]) -> bool:
+        """台本による説明（explain.build_steps が作った手順）を始める。"""
+        if self.state != State.IDLE or self.busy:
+            return False
+        self.steps = list(steps)
+        self.baseline_g = self.scale.grams if self.use_scale and self.scale.filled else None
+        self._set(State.ACTIVE)
+        return True
+
     def abort(self, then: State, speed: float = 1.0) -> None:
         """今の動きをやめて原点（下降・正面）へ戻る。戻り終えたら then の状態にする。"""
         if self.speaking:
             self.player.stop()
             self.speaking = False
+        self.talk_phase, self.talk_cues, self.talk_pre, self.progress = 'start', [], [], ''
         if self.lift.moving:
-            # 昇降中はヨーが正面にあるので、そのまま下降へ切り替える
-            self.steps = [Step('lift', self.lift_home, speed)]
+            # 昇降中はヨーが止まっているので、そのまま下降へ切り替え、下りてから正面へ戻す
+            # （説明では横を向いたまま昇降するので、ヨーが正面とは限らない）
+            self.steps = [Step('lift', self.lift_home, speed), Step('yaw', 0.0, speed)]
         else:
             self.steps = self.home_steps(speed)
         self.step = None
@@ -173,8 +215,8 @@ class Unit:
 
     def _enter(self, s: Step) -> None:
         if s.kind == 'lift':
-            if self.yaw.moving or not self.yaw_front:
-                raise InterlockError(f'{self.name}: ヨーが正面にないまま昇降しようとした')
+            if self.yaw.moving:
+                raise InterlockError(f'{self.name}: ヨーが動いている間に昇降しようとした')
             self.lift.move_to(s.value, s.speed)
         elif s.kind == 'yaw':
             if self.lift.moving:
@@ -184,6 +226,13 @@ class Unit:
             self.wait_left = s.value
         elif s.kind == 'speak':
             self.speaking = False
+        elif s.kind == 'sync':
+            s.barrier.arrive(self.name)
+        elif s.kind == 'talk':
+            self.speaking, self.talk_phase, self.talk_t = False, 'start', 0.0
+            self.talk_cues = sorted(s.cues, key=lambda c: c[0])
+            self.talk_pre, self.talk_pre_t = list(s.pre), 0.0
+            self.progress = s.label
 
     def _done(self, s: Step, dt: float) -> bool:
         if s.kind == 'lift':
@@ -205,7 +254,57 @@ class Unit:
                 return False
             self.speaking = False
             return True
+        if s.kind == 'talk':
+            return self._talk(s, dt)
+        if s.kind == 'sync':
+            return s.barrier.released
         raise ValueError(s.kind)
+
+    def _talk(self, s: Step, dt: float) -> bool:
+        """声を流し、声の時刻に合わせた動き（cues）を順に出す。昇降とヨーは同時に動かさない。
+
+        file が None なら聞き役で、声は流さず、もう一方の基が流し始めた声の時刻に合わせて cues を出す。
+        pre（話す前のポーズの変更）は最初に順に出し、pre_lead 秒たったら動いている途中でも話し始める（テンポを上げる）。
+        段階: start（他の基の声・前の動きを待つ）→ speak（声の時刻で cues を出す。前の動きが終わるまで次は待つ）
+        → settle（声が終わったら残りの cues は捨て、今の動きを終えてから end_lift へ戻す）→ 終わり
+        """
+        if self.talk_pre and not (self.lift.moving or self.yaw.moving):   # 話す前のポーズの変更を順に
+            axis, target, speed = self.talk_pre.pop(0)
+            getattr(self, axis).move_to(target, speed)
+        if self.talk_phase == 'start':
+            self.talk_pre_t += dt
+            if s.file is None:   # 聞き役：相手（もう一方の基）の声が始まったら、その声に合わせて動く
+                if self.player.playing:
+                    self.talk_t, self.talk_phase = 0.0, 'speak'
+                return False
+            if self.player.playing or self.talk_pre_t < s.pre_lead:
+                return False
+            if not s.pre and (self.lift.moving or self.yaw.moving):
+                return False
+            snd = self.ucfg.sound
+            self.player.play(s.file, snd.volume, s.channel or snd.channel)
+            self.speaking, self.talk_t, self.talk_phase = True, 0.0, 'speak'
+            return False
+        if self.talk_phase == 'speak':
+            self.talk_t += dt
+            if self.player.playing:
+                if self.talk_cues and self.talk_t >= self.talk_cues[0][0] and not self.talk_pre \
+                        and not (self.lift.moving or self.yaw.moving):
+                    cue = self.talk_cues.pop(0)
+                    getattr(self, cue[1]).move_to(cue[2], cue[3])
+                return False
+            self.speaking, self.talk_cues, self.talk_phase = False, [], 'settle'
+        if self.talk_phase == 'settle':
+            if self.talk_pre or self.lift.moving or self.yaw.moving:
+                return False
+            self.talk_phase = 'return'
+            if s.end_lift is not None:
+                self.lift.move_to(s.end_lift, 0.6)
+            return False
+        if self.lift.moving or self.yaw.moving:   # return
+            return False
+        self.progress = ''
+        return True
 
     def _finished(self) -> None:
         if self.after_abort is not None:

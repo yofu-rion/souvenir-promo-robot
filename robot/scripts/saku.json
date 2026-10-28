@@ -1,0 +1,225 @@
+{
+  "source": "sim/scripts/saku.txt",
+  "sentences": [
+    {
+      "n": 1,
+      "text": "わたしは、奈良のしにせのおすのくらミヅホ生まれのビネガードリンク、saku コメズフルーティーです。",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": 0.5,
+      "arousal": 0.6,
+      "voice": "01.wav"
+    },
+    {
+      "n": 2,
+      "text": "吉野杉の木桶でじっくり発酵させたじゅんまいすに、マンゴー、いちじく、パイン、みかん、クランベリー、そしてディルの香りを重ねました。",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "02.wav"
+    },
+    {
+      "n": 3,
+      "text": "炭酸で5倍から10倍に割ると、果実とハーブの香りがふわっと花ひらきます。",
+      "speakers": [
+        1
+      ],
+      "gesture": "joy",
+      "valence": 0.9,
+      "arousal": 0.8,
+      "voice": "03.wav"
+    },
+    {
+      "n": 4,
+      "text": "ジュースじゃ物足りない、でもお酒じゃない。",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": 0.2,
+      "arousal": 0.4,
+      "voice": "04.wav"
+    },
+    {
+      "n": 5,
+      "text": "そんな夜に。",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "05.wav"
+    },
+    {
+      "n": 6,
+      "text": "今日はすぐそこで、一杯から試せますよ。",
+      "speakers": [
+        1
+      ],
+      "gesture": "pickme",
+      "valence": 0.6,
+      "arousal": 0.3,
+      "voice": "06.wav"
+    },
+    {
+      "n": 7,
+      "text": "わたしは、saku クロズスパイシー。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.5,
+      "arousal": 0.6,
+      "voice": "07.wav"
+    },
+    {
+      "n": 8,
+      "text": "奈良のすぐらミヅホの木桶仕込み・純玄米黒酢に、シナモン、ハッカク、カルダモン、クローブ、生姜、レモン、バニラ、はちみつを重ねた、ちょっと大人のビネガードリンクです。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "08.wav"
+    },
+    {
+      "n": 9,
+      "text": "炭酸で割ればクラフトコーラのよう。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.6,
+      "arousal": 0.5,
+      "voice": "09.wav"
+    },
+    {
+      "n": 10,
+      "text": "お湯割りなら、ほっとする香りに。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.5,
+      "arousal": -0.3,
+      "voice": "10.wav"
+    },
+    {
+      "n": 11,
+      "text": "お酒に数滴たらせば、カクテルにも化けます。",
+      "speakers": [
+        2
+      ],
+      "gesture": "surprise",
+      "valence": 0.2,
+      "arousal": 0.95,
+      "voice": "11.wav"
+    },
+    {
+      "n": 12,
+      "text": "はじめての味、今日は角打ちブースで一杯から試せます。",
+      "speakers": [
+        2
+      ],
+      "gesture": "pickme",
+      "valence": 0.6,
+      "arousal": 0.3,
+      "voice": "12.wav"
+    },
+    {
+      "n": 13,
+      "text": "お隣さん、またスパイス自慢？",
+      "speakers": [
+        1
+      ],
+      "gesture": "sulk",
+      "valence": -0.5,
+      "arousal": 0.5,
+      "voice": "13.wav"
+    },
+    {
+      "n": 14,
+      "text": "黒酢の深みは、わたしにしか出せないですから。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.6,
+      "arousal": 0.5,
+      "voice": "14.wav"
+    },
+    {
+      "n": 15,
+      "text": "でも、はじめての人にはわたしの果実の香りのほうが入りやすいと思うな。",
+      "speakers": [
+        1
+      ],
+      "gesture": null,
+      "valence": 0.3,
+      "arousal": 0,
+      "voice": "15.wav"
+    },
+    {
+      "n": 16,
+      "text": "じゃあ、2本セットで飲み比べてもらいましょう。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.6,
+      "arousal": 0.4,
+      "voice": "16.wav"
+    },
+    {
+      "n": 17,
+      "text": "それ、いちばんいい。",
+      "speakers": [
+        1
+      ],
+      "gesture": "joy",
+      "valence": 0.9,
+      "arousal": 0.8,
+      "voice": "17.wav"
+    },
+    {
+      "n": 18,
+      "text": "でも、いきなり2本は勇気がいるかも。",
+      "speakers": [
+        1
+      ],
+      "gesture": "shy",
+      "valence": 0.4,
+      "arousal": -0.2,
+      "voice": "18.wav"
+    },
+    {
+      "n": 19,
+      "text": "だから今日は、角打ちブースのタイコーヒーさんで一杯ずつ飲めるんでしょ。",
+      "speakers": [
+        2
+      ],
+      "gesture": null,
+      "valence": 0.6,
+      "arousal": 0.4,
+      "voice": "19.wav"
+    },
+    {
+      "n": 20,
+      "text": "飲み比べてから、気に入ったほうを連れて帰ってください。",
+      "speakers": [
+        1
+      ],
+      "gesture": "takehome",
+      "valence": 0.7,
+      "arousal": 0.4,
+      "voice": "20.wav"
+    }
+  ]
+}

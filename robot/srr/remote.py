@@ -4,6 +4,7 @@
   - STATE（write、Pi → M5）：画面に出す内容の JSON。{"m":"remote","run":true,"t":["行1","行2"]}
 
 制御ループ（50 Hz）を止めないよう、BLE は別スレッドの asyncio で動かす。ループとは queue でやりとりする。
+USB ケーブルでつなぐときは SerialLink（同じ JSON を 1 行ずつ。config の remote.transport: serial）。
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ import queue
 import re
 import subprocess
 import threading
+import time
 
 log = logging.getLogger(__name__)
 
@@ -139,6 +141,111 @@ class RemoteLink:
             return
         if isinstance(ev, dict) and 'c' in ev:
             self.events.put(ev)
+
+
+class SerialLink:
+    """M5Stack と USB ケーブル（シリアル）でつなぐ。RemoteLink と同じ使い方。
+
+    1 行 1 つの JSON を送り合う。M5Stack は STATE が届いている間だけボタンをシリアルに送り、
+    届かなくなって 5 s で「Pi と未接続」に戻る（こちらは REMOTE_REFRESH_S ごとに送り直す）。
+    ケーブルを抜いたら、挿し直されるまで開き直す。
+    """
+
+    def __init__(self, port: str, baud: int = 115200):
+        self.port, self.baud = port, baud
+        self.events: queue.Queue = queue.Queue()
+        self.connected = False
+        self._latest: bytes | None = None
+        self._lock = threading.Lock()
+        self._running = False
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._running = True
+        self._thread = threading.Thread(target=self._thread_main, name='remote-serial', daemon=True)
+        self._thread.start()
+
+    def poll(self) -> list[dict]:
+        out = []
+        while True:
+            try:
+                out.append(self.events.get_nowait())
+            except queue.Empty:
+                return out
+
+    def send(self, msg: dict) -> None:
+        data = json.dumps(msg, ensure_ascii=False, separators=(',', ':')).encode() + b'\n'
+        with self._lock:
+            self._latest = data
+
+    def close(self, timeout: float = 3.0) -> None:
+        self._running = False
+        if self._thread is not None:
+            self._thread.join(timeout)
+
+    def _open(self):
+        import serial
+        # DTR/RTS は既定のまま開く（Core2 は両方を下げるとリセットされる）
+        return serial.Serial(self.port, self.baud, timeout=0.05)
+
+    def _thread_main(self) -> None:
+        try:
+            import serial  # noqa: F401
+        except ImportError:
+            log.warning('pyserial がないので USB のリモコンを使わない（pip install pyserial）')
+            return
+        warned = False
+        while self._running:
+            try:
+                port = self._open()
+            except OSError as e:
+                if not warned:
+                    log.warning('リモコンのシリアル（%s）を開けない: %s。挿されるまで待つ', self.port, e)
+                    warned = True
+                time.sleep(2)
+                continue
+            warned = False
+            self.connected = True
+            log.info('リモコンに USB でつないだ（%s）', self.port)
+            self.events.put({'c': 'hello'})
+            buf = b''
+            try:
+                while self._running:
+                    with self._lock:
+                        data, self._latest = self._latest, None
+                    if data:
+                        port.write(data)
+                    buf += port.read(256)
+                    while b'\n' in buf:
+                        line, buf = buf.split(b'\n', 1)
+                        self._on_line(line.strip())
+            except OSError as e:   # ケーブルを抜いたなど
+                log.warning('リモコンのシリアルが切れた: %s', e)
+            finally:
+                self.connected = False
+                try:
+                    port.close()
+                except OSError:
+                    pass
+            time.sleep(1)
+
+    def _on_line(self, line: bytes) -> None:
+        if not line.startswith(b'{'):
+            return   # M5Stack の起動ログなど
+        try:
+            ev = json.loads(line.decode())
+        except (UnicodeDecodeError, ValueError):
+            log.warning('リモコンから読めないデータ: %r', line)
+            return
+        if isinstance(ev, dict) and 'c' in ev:
+            self.events.put(ev)
+
+
+def make_link(cfg):
+    """config の remote.transport に合わせて、BLE か USB シリアルのつなぎ方を返す。"""
+    if cfg.remote_transport == 'serial':
+        return SerialLink(cfg.remote_serial_port)
+    return RemoteLink(cfg.remote_name)
 
 
 class MockRemote:

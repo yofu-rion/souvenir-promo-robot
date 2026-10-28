@@ -155,6 +155,96 @@ class RemoteControllerTest(unittest.TestCase):
         self.assertIsNone(self.ctl.calib)
         self.assertEqual(self.u.ucfg.lift.pulse_center_us, 1500)   # 保存していないので元のまま
 
+    def test_volume_from_remote_is_saved_and_used(self):
+        self.assertEqual(self.ctl.volume, 80)               # 初期値
+        self.remote.push('mode', 'volume')
+        for _ in range(3):
+            self.remote.push('vol', 5)
+        run_for(self.ctl, 0.3)
+        self.assertEqual(self.ctl.volume, 95)
+        self.assertAlmostEqual(self.ctl.player.master, 0.95)
+        self.assertEqual(self.remote.sent[-1]['m'], 'settings')
+        self.assertTrue(self.remote.sent[-1]['t'][0].startswith('音量 95%'))
+        for _ in range(25):
+            self.remote.push('vol', 5)
+        run_for(self.ctl, 0.3)
+        self.assertEqual(self.ctl.volume, 200)              # 200% より上にはしない
+        self.remote.push('voltest')
+        run_for(self.ctl, 0.1)
+        self.assertEqual(self.ctl.player.played[-1][0], self.u.ucfg.sound.file)
+        # 作り直しても残っている
+        ctl2, _, _, player2 = make_controller(self.cfg, grams=(200,), remote=MockRemote())
+        self.assertEqual(ctl2.volume, 200)
+        self.assertAlmostEqual(player2.master, 2.0)
+        self.remote.push('mode', 'remote')
+        run_for(self.ctl, 0.3)
+        self.assertEqual(self.remote.sent[-1]['m'], 'remote')
+
+    def test_motion_size_from_remote_scales_the_explanation(self):
+        from srr.explain import NOD_END, Heights, talk_cues
+        self.assertEqual(self.ctl.motion, 100)              # 初期値（config の motion_base が 100%）
+        self.assertEqual(self.ctl._factors(), (self.cfg.motion_base, self.cfg.tempo_base))
+        self.remote.push('mode', 'settings')
+        for _ in range(10):
+            self.remote.push('amp', 10)
+        run_for(self.ctl, 0.3)
+        self.assertEqual(self.ctl.motion, 150)              # 150% より上にはしない
+        self.assertTrue(self.remote.sent[-1]['t'][1].startswith('動きの大きさ 150%'))
+        self.assertAlmostEqual(self.ctl._factors()[0], 1.5 * self.cfg.motion_base)
+        H = Heights(self.cfg)
+        timing = {'duration': 3.0, 'phrases': [{'end': 2.9, 'pause': 0.0}]}
+        nod = lambda amp: [c for c in talk_cues(self.cfg, H, 0.3, 0.0, timing, 0.3, 0.0, None, 1, amp=amp)
+                           if len(c) > 4][0][2]
+        self.assertGreater(nod(2.0) - nod(1.0), 0)          # 大きくすると、うなずきが深くなる（論理角は下ほど大きい）
+
+    def test_interval_from_remote_sets_the_wait_between_runs(self):
+        self.assertEqual(self.ctl.interval, self.cfg.auto_interval_s)   # 初期値は config
+        self.remote.push('mode', 'settings')
+        for _ in range(4):
+            self.remote.push('itv', 5)
+        run_for(self.ctl, 0.3)
+        self.assertEqual(self.ctl.interval, self.cfg.auto_interval_s + 20)
+        self.assertIn(f'間隔 {self.ctl.interval} 秒', self.remote.sent[-1]['t'][2])
+        for _ in range(200):
+            self.remote.push('itv', -5)
+        run_for(self.ctl, 0.3)
+        self.assertEqual(self.ctl.interval, 0)                           # 0 秒より短くはしない
+        ctl2, _, _, _ = make_controller(self.cfg, grams=(200,), remote=MockRemote())
+        self.assertEqual(ctl2.interval, 0)                               # 次の起動でも残る
+
+    def test_manual_mode_moves_one_axis_at_a_time_within_limits(self):
+        self.remote.push('mode', 'manual')
+        run_for(self.ctl, 0.1)
+        self.assertIsNotNone(self.ctl.manual)
+        self.assertEqual(self.remote.sent[-1]['m'], 'manual')
+        man = self.ctl.manual
+        self.assertEqual(man.target, (self.u, 'lift'))
+        self.remote.push('adj', 10)                          # 高さ ＋10%
+        run_for(self.ctl, 0.1)
+        self.assertTrue(self.u.lift.moving)
+        self.remote.push('next')                             # ヨーへ
+        self.remote.push('adj', 10)                          # 昇降が動いている間は受け付けない
+        run_for(self.ctl, 0.05)
+        self.assertFalse(self.u.yaw.moving)
+        self.assertIn('動いている間は動かせない', man.message)
+        run_for(self.ctl, 2)
+        self.assertAlmostEqual(man.lift_percent(self.u.lift.pos), 10, delta=0.5)
+        self.remote.push('adj', 10)
+        run_for(self.ctl, 2)
+        self.assertAlmostEqual(self.u.yaw.pos, 10.0)
+        for _ in range(12):                                  # 可動範囲の端で止まる
+            self.remote.push('adj', 10)
+        run_for(self.ctl, 0.1)
+        run_for(self.ctl, 3)
+        self.assertEqual(self.u.yaw.pos, self.cfg.yaw.hi)
+        self.assertIn('向き', self.remote.sent[-1]['t'][1])
+        self.remote.push('mode', 'remote')                   # 終えると原点へ
+        run_for(self.ctl, 6)
+        self.assertIsNone(self.ctl.manual)
+        self.assertTrue(self.u.at_home)
+        self.assertEqual(self.u.state, State.IDLE)
+        self.assertEqual(self.remote.sent[-1]['m'], 'remote')
+
     def test_shutdown_during_calibration_returns_home_first(self):
         self.enter_calib()
         self.remote.push('next')

@@ -195,6 +195,140 @@ def cmd_play(cfg, args):
         time.sleep(0.05)
 
 
+class _WavTimedPlayer:
+    """WAV の長さだけ「再生中」になる（計算だけで流すとき用）。"""
+
+    def __init__(self, fallback):
+        self.left, self.fallback = 0.0, fallback
+
+    def play(self, path, volume=1.0, channel='both'):
+        import wave
+        try:
+            with wave.open(path) as w:
+                self.left = w.getnframes() / w.getframerate()
+        except (OSError, wave.Error, TypeError):
+            print(f'  ※ 声がない: {path}（{self.fallback:g} 秒として数える）')
+            self.left = self.fallback
+
+    def step(self, dt):
+        self.left = max(0.0, self.left - dt)
+
+    @property
+    def playing(self):
+        return self.left > 0
+
+    def stop(self):
+        self.left = 0.0
+
+
+def pick_program(cfg, ctl, which: str | None) -> None:
+    """--program（番号か名前）で台本を選ぶ。なければリモコンで選んだ台本（settings.json）。"""
+    if which is None:
+        return
+    names = [p.name for p in cfg.programs]
+    if which.isdigit() and 1 <= int(which) <= len(names):
+        ctl.program_i = int(which) - 1
+    elif which in names:
+        ctl.program_i = names.index(which)
+    else:
+        sys.exit('台本は ' + ' / '.join(f'{i + 1}={n}' for i, n in enumerate(names)))
+
+
+def explain_duo_preview(cfg, program: str | None = None, swap: bool | None = None) -> None:
+    """2 基で台本を、サーボを動かさずに計算だけで流す。"""
+    from .controller import Controller, build_units
+    from .unit import State
+    if not cfg.programs or len(cfg.units) < 2:
+        sys.exit('2 基の台本には sequence.programs と、有効な基が 2 つ要る（units の enabled）')
+    player = _WavTimedPlayer(cfg.speech_fallback_s)
+    units = build_units(cfg, player, backend='mock')
+    ctl = Controller(cfg, units, None, player)
+    ctl.paused = True
+    pick_program(cfg, ctl, program)
+    if swap is not None:
+        ctl.settings['swap'] = swap
+    print(f'台本：{ctl.program.name}' + ('（キャラ入れ替え）' if ctl.swap else ''))
+    for u in units:
+        u.lift.start_at(cfg.lift.home)
+        u.yaw.start_at(0.0)
+        u._set(State.IDLE)
+    if not ctl._begin_duo():
+        sys.exit('掛け合いを始められない')
+    dt, t, last = 0.02, 0.0, {}
+    while any(u.busy for u in units) and t < 900:
+        ctl.tick(dt)
+        t += dt
+        for u in units:
+            if u.progress and u.progress != last.get(u.name):
+                last[u.name] = u.progress
+                print(f'{t:6.1f} s  {u.name}  {u.progress}')
+    print(f'全体 {t:.1f} 秒（声 {ctl.program.voices}）')
+
+
+def cmd_explain(cfg, args):
+    """台本の説明を、サーボを動かさずに計算だけで流し、文ごとの開始時刻と全体の長さを出す。"""
+    if args.unit == 'duo':
+        return explain_duo_preview(cfg, args.program, True if args.swap else None)
+    import wave
+    from .axis import Axis
+    from .explain import build_steps, load_plan
+    from .hx711 import Scale
+    from .servo import MockPwm, Servo
+    from .unit import Unit
+    u = pick_unit(cfg, args.unit)
+    if u.explain is None:
+        sys.exit(f'{u.name} に explain（台本と声）の設定がない')
+    plan = load_plan(u.explain.plan)
+    from . import settings as settings_mod
+    st = settings_mod.load(settings_mod.path_for(cfg))
+    amp, tempo = settings_mod.effective(cfg, st)
+    steps = build_steps(cfg, plan, u.explain.voices, u.explain.dance, amp=amp, tempo=tempo)
+
+    class TimedPlayer:   # WAV の長さだけ「再生中」になる
+        def __init__(self):
+            self.left = 0.0
+
+        def play(self, path, volume=1.0, channel='both'):
+            try:
+                with wave.open(path) as w:
+                    self.left = w.getnframes() / w.getframerate()
+            except (OSError, wave.Error):
+                print(f'  ※ 声がない: {path}（{cfg.speech_fallback_s:g} 秒として数える）')
+                self.left = cfg.speech_fallback_s
+
+        @property
+        def playing(self):
+            return self.left > 0
+
+        def stop(self):
+            self.left = 0.0
+
+    player = TimedPlayer()
+    mk = lambda sc: Servo(sc, MockPwm(), cfg.servo_range_deg)
+    unit = Unit(cfg, u, Axis('昇降', cfg.lift, mk(u.lift)), Axis('ヨー', cfg.yaw, mk(u.yaw), ratio=cfg.yaw_gear_ratio),
+                Scale(0, 1, 0), player)
+    unit.use_scale = False
+    unit.lift.accel_scale = unit.yaw.accel_scale = tempo
+    unit.lift.start_at(cfg.lift.home)
+    unit.yaw.start_at(0.0)
+    unit.state = unit.state.IDLE
+    unit.start_explain(steps)
+    dt, t, last = 0.02, 0.0, ''
+    while unit.busy and t < 600:
+        unit.tick(dt)
+        player.left = max(0.0, player.left - dt)
+        t += dt
+        if unit.progress and unit.progress != last:
+            last = unit.progress
+            print(f'{t:6.1f} s  {unit.progress}')
+    print(f'全体 {t:.1f} 秒（{len(plan["sentences"])} 文、声 {u.explain.voices}）')
+
+
+def cmd_sync_check(cfg, args):
+    from .synccheck import report, run_check
+    report(run_check(cfg, pick_unit(cfg, args.unit)))
+
+
 def cmd_run(cfg, args):
     from .controller import run
     run(cfg, no_scale=args.no_scale, no_remote=args.no_remote)
@@ -236,6 +370,14 @@ def main(argv=None):
     p = sub.add_parser('play', help='その基の音声を鳴らす')
     p.add_argument('unit')
 
+    p = sub.add_parser('explain', help='台本の説明を計算だけで流し、文ごとの時刻と全体の長さを出す（duo で 2 基の台本）')
+    p.add_argument('unit')
+    p.add_argument('--program', help='duo で流す台本（sequence.programs の番号か名前。既定はリモコンで選んだ台本）')
+    p.add_argument('--swap', action='store_true', help='duo でキャラの配置を入れ替える（既定はリモコンの設定）')
+
+    p = sub.add_parser('sync-check', help='実機で説明を 1 回流し、動きと声のずれを測る（サービスは止めておく）')
+    p.add_argument('unit')
+
     p = sub.add_parser('run', help='本番の動作')
     p.add_argument('--no-scale', action='store_true', help='ロードセルなしで動かす（重量を見ない）')
     p.add_argument('--no-remote', action='store_true', help='リモコンを使わない（config の remote を無視して自動で動かす）')
@@ -248,4 +390,4 @@ def main(argv=None):
     if args.backend:
         cfg.pwm_backend = args.backend
     {'status': cmd_status, 'servo': cmd_servo, 'move': cmd_move, 'scale': cmd_scale,
-     'scale-cal': cmd_scale_cal, 'play': cmd_play, 'run': cmd_run}[args.cmd](cfg, args)
+     'scale-cal': cmd_scale_cal, 'play': cmd_play, 'explain': cmd_explain, 'sync-check': cmd_sync_check, 'run': cmd_run}[args.cmd](cfg, args)
